@@ -197,8 +197,8 @@ mk_wait:
         lda     splash_seq,x
         cmp     #$FF
         bne     ma_go
-        stz     anim_ix         ; act over: rest on the clean stand pose
-        lda     #0              ;   (frame 0: arms level, no crouch/dither)
+        stz     anim_ix         ; act over: rest on the dedicated hold frame
+        lda     #SPLASH_HOLD    ;   (stand pose, arms 1px taller on the bottom)
         jsr     splash_frame
         lda     #60             ;   ...for ~1s, then the act loops
         sta     anim_cd

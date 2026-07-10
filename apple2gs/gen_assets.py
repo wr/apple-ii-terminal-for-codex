@@ -410,6 +410,21 @@ def splash_extract():
             seq[-1] = (j, seq[-1][1] + vbl)
         else:
             seq.append((j, vbl))
+
+    # dedicated frame for the menu's inter-loop pause: the opening stand
+    # pose, but with the arms one pixel taller on the bottom (Wells).
+    # Appended last and never referenced by the storyboard; claude.s draws
+    # it as SPLASH_HOLD.
+    hold = [list(r) for r in uniq[seq[0][0]]]
+    edges = [next((x for x in range(20, w) if hold[y][x] == 2), None)
+             for y in range(h)]
+    arm_left = min(e for e in edges if e is not None)
+    arm_bottom = max(y for y in range(h) if edges[y] == arm_left)
+    if arm_bottom + 1 < h:
+        for x in range(20, w):
+            if hold[arm_bottom][x] == 2 and hold[arm_bottom + 1][x] == 0:
+                hold[arm_bottom + 1][x] = 2
+    uniq.append(tuple(tuple(r) for r in hold))
     return uniq, seq, w, h
 
 
@@ -419,6 +434,7 @@ def emit_splash():
     lines = [f"SPLASH_BYTES = {w // 4}",
              f"SPLASH_H = {h}",
              f"SPLASH_FSIZE = {fsize}   ; bytes per frame (stored 1x, drawn 4x)",
+             f"SPLASH_HOLD = {len(uniq) - 1}   ; inter-loop pause frame (not in seq)",
              f"; {len(uniq)} unique frames of {w}x{h} cells, "
              f"{len(seq)} storyboard entries",
              "splash_data:"]
