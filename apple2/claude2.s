@@ -7,10 +7,10 @@
 ; Serial: 6551 ACIA at the slot-2 addresses - which is both an Apple
 ; Super Serial Card in slot 2 (IIe/II+) and the IIc/IIc+ built-in
 ; modem port (they're wired at the same soft switches). 9600 8N1.
-; RX is interrupt-driven into a page ring buffer (a 1-byte ACIA FIFO
-; at 9600 = one char time of slack; scrolling would drop bytes), with
-; a polled fallback woven through every slow loop for SSCs whose IRQ
-; DIP is off. TX polls TDRE with a timeout (W65C51N never sets it).
+; RX is POLLED into a page ring buffer: the 6551 buffers one byte
+; (~1000 cycles of slack at 9600), so rb_poll is woven through every
+; loop that could run longer - the same never-go-deaf discipline as
+; the GS client. TX polls TDRE with a timeout (W65C51N never sets it).
 ;
 ; Protocol: same app-mode stream as the IIgs client. 0x01 <n> color
 ; (3 -> inverse, else normal), 0x02 bullet, 0x0E header frame (3 CR
@@ -106,13 +106,9 @@ entry:
         sta     STORE80ON       ; 80STORE stays on for the whole run
         sta     COL80ON
         sta     ALTCHARON
-        lda     #$7F            ; inverse mask incl. lowercase
-        sta     invmask
         jmp     @serial
 @w40:   lda     #40
         sta     width
-        lda     #$3F            ; II+ inverse: uppercase/symbols only
-        sta     invmask
 
 @serial:
         ; ---- 6551: 9600 8N1, DTR on, polled (no interrupts).
@@ -249,12 +245,29 @@ putscr:
         inc     curx
         rts
 
-; conv - ascii in A -> screen code honoring invflag
+; conv - ascii in A -> screen code honoring invflag.
+; Inverse is the tricky one: with ALTCHARSET on (our 80-col setup),
+; screen $00-$1F = inverse upper, $20-$3F = inverse symbols, and
+; $40-$5F is MOUSETEXT - so uppercase must fold $40-$5F -> $00-$1F,
+; while lowercase ($60-$7F) really is inverse lowercase. Without
+; ALTCHARSET (II/II+/40-col), $40-$7F would FLASH: fold lowercase
+; to upper first, then everything to $00-$3F.
 conv:
         ldx     invflag
         beq     @n
-        and     invmask
+        ldx     has80           ; has80 == ALTCHARSET on
+        bne     @alt
+        cmp     #$60            ; no altchar: fold case, then to inverse
+        bcc     @fold
+        and     #$5F
+@fold:  and     #$3F
         rts
+@alt:   cmp     #$40
+        bcc     @done           ; $20-$3F: already inverse symbols
+        cmp     #$60
+        bcs     @done           ; $60-$7F: inverse lowercase as-is
+        and     #$1F            ; $40-$5F: uppercase -> $00-$1F
+@done:  rts
 @n:     ora     #$80
         rts
 
@@ -404,7 +417,8 @@ fw_core:
         sta     tmp
         ldx     #0
         ldy     #120
-@w1:    lda     VBLBIT          ; wait for the bit to flip...
+@w1:    jsr     rb_poll         ; a frame is 16 char times - NEVER go deaf
+        lda     VBLBIT          ; wait for the bit to flip...
         and     #$80
         cmp     tmp
         bne     @ph2
@@ -416,7 +430,8 @@ fw_core:
 @ph2:   sta     tmp
         ldx     #0
         ldy     #120
-@w2:    lda     VBLBIT          ; ...and flip back = exactly one frame,
+@w2:    jsr     rb_poll
+        lda     VBLBIT          ; ...and flip back = exactly one frame,
         and     #$80            ; whichever polarity this machine uses
         cmp     tmp
         bne     @out
@@ -705,9 +720,9 @@ session_start:
         jsr     draw_mascot     ; header slot: top-left
         lda     #0
         sta     curx
+        sta     quitflag
         lda     #TOPROW
         sta     cury
-        sta     quitflag
 main:
         jsr     draw_box
         jsr     read_line
@@ -1068,6 +1083,7 @@ do_header:
         ldx     curx
 @pad:   cpx     width
         bcs     @nl
+        jsr     rb_poll         ; ~60 pads = several char times
         lda     #$A0
         jsr     putscr
         ldx     curx
@@ -1174,7 +1190,6 @@ rb_tail:    .res 1
 has80:      .res 1
 hasvbl:     .res 1
 width:      .res 1
-invmask:    .res 1
 quitflag:   .res 1
 colorpend:  .res 1
 havefirst:  .res 1
