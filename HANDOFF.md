@@ -21,8 +21,8 @@ Claude Code-style session UI (transcript, scrollback, spinner, pinned input).
   hardware predates the menu. **First task next session: install the current
   build on the metal** (procedure below) and sanity-check it — the splash
   draw loop and menu key handling have never run on a real SCC/CPU.
-- The repo is **not a git repo yet**. Wells wants to open-source it (badly).
-  No history exists — be careful with destructive edits.
+- The repo lives at **github.com/wr/claude-code-ii** (private, MIT). Flip it
+  public once W-469 (tidy) and W-470 (docs) land.
 
 ## Hardware
 
