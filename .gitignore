@@ -15,3 +15,5 @@ apple2gs/*.dsk
 apple2/claude2.o
 apple2/COBJ8
 apple2gs/COBJ8
+apple2/claude2.lbl
+apple2/claude2.map

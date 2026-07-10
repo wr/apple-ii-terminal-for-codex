@@ -74,6 +74,8 @@ entry:
         sta     rb_head
         sta     rb_tail
         sta     invflag
+        lda     #2
+        sta     dly_y           ; 1MHz frame delay; IIc+ scales it up
 
         ; ---- machine id (Apple II Misc TN #7)
         lda     $FBB3
@@ -85,7 +87,7 @@ entry:
         sta     hasvbl
         beq     @setw
 @newer: lda     #1
-        sta     hasvbl          ; IIe/IIc/IIc+ all have $C019
+        sta     hasvbl          ; provisional - probed for real below
         lda     $FBC0
         beq     @iic            ; $00 = IIc family (built-in 80 col)
         cmp     #$E0
@@ -98,7 +100,33 @@ entry:
         jmp     @setw
 @iic:   lda     #1
         sta     has80
+        lda     $FBBF
+        cmp     #$05            ; IIc Plus runs 4x - scale the delay loop
+        bne     @setw
+        lda     #8
+        sta     dly_y
 @setw:
+        ; does $C019 really toggle here? The IIe's VBLBAR does; the
+        ; IIc's $C019 is interrupt plumbing and may sit still. Probe
+        ; for ~2 frames and trust only what we see.
+        lda     hasvbl
+        beq     @vdone
+        lda     VBLBIT
+        and     #$80
+        sta     tmp
+        ldx     #0
+        ldy     #160
+@vprob: lda     VBLBIT
+        and     #$80
+        cmp     tmp
+        bne     @vdone          ; it moves - keep hasvbl=1
+        inx
+        bne     @vprob
+        dey
+        bne     @vprob
+        lda     #0              ; never moved: cycle-count instead
+        sta     hasvbl
+@vdone:
         lda     has80
         beq     @w40
         lda     #80
@@ -440,10 +468,10 @@ fw_core:
         dey
         bne     @w2
 @out:   rts
-@plus:  ldy     #13
-@d1:    ldx     #0
-@d2:    jsr     rb_poll         ; ~16ms of delay that stays deaf-proof
-        inx
+@plus:  ldy     dly_y           ; ~16ms at 1MHz (2); 8 on the 4MHz IIc+
+@d1:    ldx     #200            ; ~42 cycles/pass with the poll = ~8.4ms
+@d2:    jsr     rb_poll         ; delay that stays deaf-proof
+        dex
         bne     @d2
         dey
         bne     @d1
@@ -1205,4 +1233,5 @@ tmp3:       .res 1
 tmp4:       .res 1
 tcurx:      .res 1          ; transcript cursor parked during input
 tcury:      .res 1
+dly_y:      .res 1          ; frame-delay outer count (13; 52 on IIc+)
 linebuf:    .res 128
