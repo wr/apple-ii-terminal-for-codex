@@ -378,6 +378,23 @@ def splash_extract():
     mats = out_mats
     w = new_w
 
+    # art direction: erase the one-pixel "shoulder nub" - a coral cell that
+    # sticks out exactly one column left of the head side, one row above a
+    # wide arm row. It's quantization residue from the gif's rounded
+    # shoulder, most visible on the stand pose the inter-loop pause holds.
+    def _left_edge(m, y):
+        for x in range(pw + 3, w):
+            if m[y][x] == 2:
+                return x
+        return None
+    for m in mats:
+        edges = [_left_edge(m, y) for y in range(h)]
+        for y in range(2, h - 1):
+            a, b, c = edges[y - 2], edges[y - 1], edges[y]
+            if (a is not None and b is not None and c is not None
+                    and c <= b - 3 and b == a - 1):
+                m[y - 1][b] = 0
+
     mats = [tuple(tuple(r) for r in m) for m in mats]
 
     uniq, idx = [], []
@@ -543,15 +560,23 @@ def _hz(name):
 
 def _voice(notes, bpm):
     """notes: (name_or_R, beats). Durations use cumulative rounding so both
-    voices of a tune stay sample-locked across loops."""
+    voices stay vblank-locked. Each melodic note gets a short articulation
+    gap shaved off its tail - the DOC free-runs, so back-to-back notes
+    otherwise smear together legato with no audible re-attack."""
     out, cum, prev = [], 0.0, 0
     for name, beats in notes:
         cum += beats
         end = round(cum * 3600 / bpm)      # 60 vblanks/sec, 60 s/min
-        dur = max(1, min(255, end - prev))
+        total = max(1, min(255, end - prev))
         prev = end
-        f = 0 if name == "R" else max(1, min(0xFFFF, round(_hz(name) * 131072 / DOC_SCAN)))
-        out += [f & 0xFF, f >> 8, dur]
+        if name == "R":
+            out += [0, 0, total]
+            continue
+        f = max(1, min(0xFFFF, round(_hz(name) * 131072 / DOC_SCAN)))
+        gap = 2 if total >= 10 else (1 if total >= 3 else 0)
+        out += [f & 0xFF, f >> 8, total - gap]
+        if gap:
+            out += [0, 0, gap]
     out += [0, 0, 0]                        # terminator: end of tune
     return out
 
@@ -574,8 +599,10 @@ MUS_MEL = [("G4",.5),("R",.5),
            ("A4",.5),("R",.5),
            ("C5",1/3),("D5",1/6),("G5",1/3),("E5",1/6),
            ("D5",2/3),("C5",1/3),("R",1)]
-MUS_BASS = [("C3",.5),("R",.5),("R",1),("G2",.5),("R",.5),("R",2/3),("G2",1/3),
-            ("A2",.5),("R",.5),("R",1),("G2",.5),("R",.5),("R",2/3),("G2",1/3)]
+# bass on the downbeats only - a swung pickup on the "a" of 4 landed in
+# the wrong-feeling spot (Wells, twice)
+MUS_BASS = [("C3",1),("R",1),("G2",1),("R",1),
+            ("A2",1),("R",1),("G2",1),("R",1)]
 
 def emit_music():
     assert sum(b for _, b in MUS_MEL) == sum(b for _, b in MUS_BASS)
