@@ -2,8 +2,12 @@
 # Build the SHR graphics client disk. Run from apple2gs/.
 set -e
 cd "$(dirname "$0")"
-DOS33=/tmp/dos33fsprogs/utils/dos33fs-utils/dos33
-TOK=/tmp/dos33fsprogs/utils/asoft_basic-utils/tokenize_asoft
+# dos33fsprogs checkout (https://github.com/deater/dos33fsprogs, `make` in
+# utils/dos33fs-utils and utils/asoft_basic-utils). Override with DOS33FSPROGS.
+DOS33FSPROGS="${DOS33FSPROGS:-/tmp/dos33fsprogs}"
+DOS33="$DOS33FSPROGS/utils/dos33fs-utils/dos33"
+TOK="$DOS33FSPROGS/utils/asoft_basic-utils/tokenize_asoft"
+[ -x "$DOS33" ] || { echo "dos33fsprogs not found at $DOS33FSPROGS - clone+make it or set DOS33FSPROGS" >&2; exit 1; }
 # Base image: pristine Apple DOS 3.3 System Master (Jan 1983). We inject our
 # files into it instead of generating a disk from scratch - a master-based
 # image is proven to boot on both KEGS and real hardware via FloppyEmu.

@@ -2429,7 +2429,7 @@ str_mdm_4:  .byte "Esc returns to the menu",0
 str_ins_t:  .byte "CLAUDE CODE ][",0
 str_ins_1:  .byte "Talk to Claude Code from a real Apple II, over a WiFi modem.",0
 str_ins_b0: .byte "THE BRIDGE (runs on a modern computer):",0
-str_ins_b1: .byte "  download: github.com/wells (see the repo for this project)",0
+str_ins_b1: .byte "  download: github.com/wr/claude-code-terminal-for-apple-ii",0
 str_ins_b2: .byte "  run:  python3 bridge.py --telnet --app --backend code",0
 str_ins_b3: .byte "  it listens for your modem on TCP port 6400.",0
 str_ins_m0: .byte "THE MODEM (any Hayes-compatible, e.g. WiModem232):",0

@@ -3,7 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Source of truth
-- GitHub: github.com/wr/claude-code-ii (private for now; flip public after W-469/W-470)
+- GitHub: github.com/wr/claude-code-terminal-for-apple-ii (public launch in progress: W-481)
 - Linear project: Claude Code ][ (id: c0d9d65f-0a87-4f10-81ab-bd1ad619fd16, team Personal)
 - Branch prefix: wells/
 - PR mode: none (commit to main, push directly)

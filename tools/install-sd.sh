@@ -1,5 +1,7 @@
 #!/bin/bash
-# Install or update the Claude Code ][ disk image on a FloppyEmu SD card.
+# Install or update the disk image on a FloppyEmu SD card. macOS-only
+# (dot_clean, mdutil, stat -f); on Linux/Windows copy the image onto a
+# freshly formatted FAT32 card, or overwrite the existing file in place.
 #
 # FloppyEmu requires each image file to be CONTIGUOUS on the card's FAT
 # filesystem, and macOS makes that surprisingly hard (verified by reading
