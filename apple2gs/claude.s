@@ -270,6 +270,8 @@ act_connect:
         lda     #23
         jsr     clear_rowA
         TEXT    str_dial, 36, 21, 2
+        stz     dialres
+        stz     mdm_c1
         jsr     modem_dial
         ldx     #30             ; 30 beats of 6 vblanks = ~3s
 ac_lp:
@@ -295,10 +297,32 @@ ac_lp:
 ac_w:   jsr     vbl_edge
         dey
         bne     ac_w
-        plx
+ac_rx:  jsr     havebyte        ; classify any modem chatter from this beat
+        beq     ac_ck
+        jsr     getbyte
+        jsr     dial_byte
+        bra     ac_rx
+ac_ck:  plx
+        lda     dialres
+        cmp     #1              ; CONNECT -> go now
+        beq     ac_sess
+        cmp     #2              ; ERROR/BUSY/NO x -> say so, back to menu
+        beq     ac_fail
         dex
         bne     ac_lp
+        ; 3s of silence = no modem in the path (KEGS) or already online:
+        ; proceed, exactly like before
+ac_sess:
         jmp     session_start
+ac_fail:
+        lda     #21
+        jsr     clear_rowA
+        TEXT    str_dfail, 21, 21, 2
+        ldy     #200            ; leave it up ~3.3s, then back to the menu
+af_w:   jsr     vbl_edge
+        dey
+        bne     af_w
+        jmp     menu_screen
 
 ; menu_draw - the four items at rows 16-19, selected one coral with '>'
 menu_draw:
@@ -862,6 +886,14 @@ scc_tab_end:
 modem_dial:
         .a8
         .i8
+        lda     #$0D            ; flush half-typed junk on the modem first -
+        jsr     sccput          ;   "foo" + our dial would send fooATDS=0
+        ldy     #15             ; ~250ms for the modem to answer the flush
+md_fl:  jsr     vbl_edge
+        dey
+        bne     md_fl
+        lda     rb_head         ; drop that answer (ERROR/OK, don't care)
+        sta     rb_tail
         ldx     #0
 md_snd: lda     dial_str,x
         beq     md_cr
@@ -871,6 +903,49 @@ md_snd: lda     dial_str,x
 md_cr:  lda     #$0D
         jsr     sccput
         rts
+
+; dial_byte - classify modem response lines during the dial window, one
+; rx byte at a time. First letter E(RROR)/B(USY) or "NO.." = fail,
+; "CO.." (CONNECT) = success; "OK"/"RING"/anything else is ignored.
+; Sets dialres: 1 = connect, 2 = fail. Silence leaves it 0.
+dial_byte:
+        .a8
+        .i8
+        and     #$7F
+        cmp     #$0D
+        beq     db_nl
+        cmp     #$20
+        bcc     db_x            ; other control bytes: ignore
+        ldx     mdm_c1
+        bne     db_c2
+        sta     mdm_c1          ; first printable of the line
+        cmp     #'E'
+        beq     db_fail
+        cmp     #'B'
+        beq     db_fail
+        rts
+db_c2:  cpx     #$FF            ; line already classified/consumed
+        beq     db_x
+        pha
+        lda     #$FF            ; consume the rest of the line either way
+        sta     mdm_c1
+        pla
+        cmp     #'O'            ; second char must be O for CONNECT / NO x
+        bne     db_x
+        cpx     #'C'
+        beq     db_conn
+        cpx     #'N'
+        beq     db_fail
+        rts
+db_conn:
+        lda     #1
+        sta     dialres
+        rts
+db_fail:
+        lda     #2
+        sta     dialres
+db_nl:  stz     mdm_c1
+db_x:   rts
 
 dial_str:
         .byte   "ATDS=0",0
@@ -2338,6 +2413,7 @@ str_welcome:.byte "Welcome to Claude Code ][",0
 str_ver:    .byte "v0.1.0",0
 str_by:     .byte "by Wells Workshop",0
 str_dial:   .byte "Dialing...",0
+str_dfail:  .byte "Dial failed - try the modem console",0
 str_quit:   .byte "/quit"                 ; matched locally in the main loop
 dial_glyphs:.byte "*+:-"                    ; connect spinner cycle
 menu_ptrs:  .word mi0, mi1, mi2, mi3
@@ -2387,6 +2463,8 @@ rowrep:     .res 1          ; splash draw: scanline repeat counter per stored ro
 menusel:    .res 1          ; boot menu: selected item 0-3
 quitflag:   .res 1          ; CMD_QUIT seen: return to menu after this reply
 mus_on:     .res 1          ; nonzero while the menu ditty plays
+dialres:    .res 1          ; dial window: 0 silence, 1 CONNECT, 2 failure
+mdm_c1:     .res 1          ; dial window: first char of current rx line
 mus_cd0:    .res 1          ; voice 0: vblanks left on current note
 mus_cd1:    .res 1          ; voice 1: vblanks left on current note
 mus_t0:     .res 1          ; scratch: freq lo of the note being started
