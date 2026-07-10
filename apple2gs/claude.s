@@ -105,6 +105,8 @@ start:
         stz     rb_tail         ; (vbl_edge polls) - init before anything serial
         stz     menusel
         stz     quitflag
+        stz     mus_tune
+        stz     mus_on
 
         lda     #$C1
         sta     NEWVIDEO
@@ -159,6 +161,7 @@ start:
         sta     BORDERCOL
         and     #$F0            ; (dialing now happens from the menu)
         sta     BORDERCOL
+        jsr     snd_init        ; DOC: load the waveform, oscillators halted
 
         TEXT    str_welcome, 27, 16, 2
         TEXT    str_ver, 37, 17, 3
@@ -177,6 +180,8 @@ menu_screen:
         TEXT    str_welcome, 27, 16, 2
         TEXT    str_ver, 37, 17, 3
         TEXT    str_by, 31, 18, 3
+        lda     mus_tune        ; (re)start the menu tune + audition label
+        jsr     music_start
         stz     anim_ix
         lda     #1
         sta     anim_cd
@@ -187,6 +192,7 @@ mk_wait:
         lda     KBD
         bmi     mk_key
         jsr     vbl_edge        ; one ~60Hz tick paces the animation
+        jsr     music_tick      ; ...and the music
         dec     anim_cd
         bne     mk_wait
         ldx     anim_ix         ; countdown done: next storyboard entry
@@ -214,6 +220,10 @@ mk_key:
         beq     mk_dn
         cmp     #$0D            ; Return
         beq     mk_go
+        cmp     #'N'            ; N = next audition tune
+        beq     mk_tune
+        cmp     #'n'
+        beq     mk_tune
         cmp     #'1'
         bcc     mk_wait
         cmp     #'5'
@@ -233,6 +243,9 @@ mk_dn:
         bcs     mk_wait
         inc     menusel
         jmp     menu_loop
+mk_tune:
+        jsr     music_next
+        jmp     menu_loop
 mk_go:
         lda     menusel
         beq     act_connect
@@ -242,12 +255,15 @@ mk_go:
         beq     mk_instr
         jmp     act_quit
 mk_modem:
+        jsr     music_stop
         jmp     page_modem
 mk_instr:
+        jsr     music_stop
         jmp     page_instr
 
 ; connect: wipe the menu, dial, spin for ~3s, then the session
 act_connect:
+        jsr     music_stop
         lda     #20
         jsr     clear_rowA
         lda     #21
@@ -475,6 +491,7 @@ act_quit:
         sep     #$30
         .a8
         .i8
+        jsr     music_stop
         lda     #$01
         sta     NEWVIDEO        ; SHR off, classic video
         sec
@@ -2100,6 +2117,245 @@ dl2:    iny
         rts
 
 ; =====================================================================
+; menu music - two DOC oscillators driven from the menu's 60Hz VBL tick.
+; Note streams live in assets.inc: (freq_lo, freq_hi, dur_vblanks)
+; triplets, dur 0 wraps, freq 0 is a rest. AUDITION BUILD: MUS_NTUNES
+; tunes cycle (2 loops each, or N key) so Wells can pick one.
+; All DOC access goes through the Sound GLU ($C03C ctrl / $C03D data /
+; $C03E-F address). Never write a $00 sample: it halts the oscillator.
+; =====================================================================
+MUS_VOL0 = $90          ; melody oscillator volume
+MUS_VOL1 = $60          ; bass oscillator volume
+GLU_CTRL = $C03C
+GLU_DATA = $C03D
+GLU_ALO  = $C03E
+GLU_AHI  = $C03F
+
+; doc_wr - write A to DOC register X
+doc_wr:
+        .a8
+        .i8
+        pha
+        lda     #$08            ; ctrl: DOC registers, no autoinc, volume 8
+        sta     GLU_CTRL
+        stx     GLU_ALO
+        stz     GLU_AHI
+        pla
+        sta     GLU_DATA
+        rts
+
+; snd_init - waveform into sound RAM page 0; two oscillators set up, halted
+snd_init:
+        .a8
+        .i8
+        lda     #$68            ; ctrl: sound RAM + autoincrement + volume 8
+        sta     GLU_CTRL
+        stz     GLU_ALO
+        stz     GLU_AHI
+        ldx     #0
+si_wv:  lda     wave_data,x
+        sta     GLU_DATA        ; autoincrement walks sound RAM $0000-$00FF
+        inx
+        bne     si_wv
+        lda     #2              ; $E1: scan 2 oscillators ((n-1)*2)
+        ldx     #$E1
+        jsr     doc_wr
+        lda     #0              ; wave pointers -> sound RAM page 0
+        ldx     #$80
+        jsr     doc_wr
+        lda     #0
+        ldx     #$81
+        jsr     doc_wr
+        lda     #0              ; wave size 256 bytes, resolution 0
+        ldx     #$C0
+        jsr     doc_wr
+        lda     #0
+        ldx     #$C1
+        jsr     doc_wr
+        lda     #MUS_VOL0
+        ldx     #$40
+        jsr     doc_wr
+        lda     #MUS_VOL1
+        ldx     #$41
+        jsr     doc_wr
+        jmp     music_stop      ; born silent: halt both oscillators
+
+; music_start - A = tune 0..MUS_NTUNES-1. Aims both voices, unhalts the
+; oscillators, draws the audition label on row 21. Exits .a8/.i8.
+music_start:
+        .a8
+        .i8
+        sta     mus_tune
+        asl     a
+        tax
+        rep     #$20
+        .a16
+        lda     tune_v0,x       ; stream offsets within music_data
+        sta     mus_p0
+        sta     mus_b0
+        lda     tune_v1,x
+        sta     mus_p1
+        sta     mus_b1
+        sep     #$20
+        .a8
+        lda     #1              ; first tick fetches the first note
+        sta     mus_cd0
+        sta     mus_cd1
+        stz     mus_loops
+        lda     #1
+        sta     mus_on
+        lda     #0              ; unhalt: free-run, channel 0
+        ldx     #$A0
+        jsr     doc_wr
+        lda     #0
+        ldx     #$A1
+        jsr     doc_wr
+        ; label: "N: next tune   1/4 MARINA"
+        lda     #21
+        jsr     clear_rowA
+        TEXT    str_tune, 2, 21, 1
+        rep     #$20
+        .a16
+        lda     #17
+        sta     curcol
+        lda     #21
+        sta     currow
+        sep     #$20
+        .a8
+        lda     #3              ; platinum
+        sta     txtcolor
+        lda     mus_tune
+        clc
+        adc     #'1'
+        jsr     putchar
+        lda     #'/'
+        jsr     putchar
+        lda     #('0'+MUS_NTUNES)
+        jsr     putchar
+        lda     #' '
+        jsr     putchar
+        lda     mus_tune
+        asl     a
+        tax
+        rep     #$20
+        .a16
+        lda     mus_names,x
+        sta     strptr
+        sep     #$20
+        .a8
+        jmp     draw_str
+
+; music_next - advance to the next audition tune (wraps)
+music_next:
+        .a8
+        .i8
+        lda     mus_tune
+        inc     a
+        cmp     #MUS_NTUNES
+        bcc     mn_ok
+        lda     #0
+mn_ok:  jmp     music_start
+
+; music_stop - halt both oscillators (notes would sustain otherwise)
+music_stop:
+        .a8
+        .i8
+        stz     mus_on
+        lda     #1              ; halt bit
+        ldx     #$A0
+        jsr     doc_wr
+        lda     #1
+        ldx     #$A1
+        jsr     doc_wr
+        rts
+
+; music_tick - call once per vblank from the menu loop. Cheap: a few GLU
+; writes at most, so the ring-buffer cadence is safe. Exits .a8/.i8.
+music_tick:
+        .a8
+        .i8
+        lda     mus_on
+        bne     mt_on
+        rts
+mt_on:
+        dec     mus_cd0         ; ---- voice 0 (melody, osc 0)
+        bne     mt_v1
+        rep     #$10
+        .i16
+        ldx     mus_p0
+        lda     music_data+2,x  ; dur 0 = end of stream
+        bne     mt_h0
+        ldx     mus_b0          ; wrap
+        inc     mus_loops       ; audition: melody loops completed
+mt_h0:  lda     music_data+2,x
+        sta     mus_cd0
+        lda     music_data,x
+        sta     mus_t0
+        lda     music_data+1,x
+        sta     mus_t1
+        inx
+        inx
+        inx
+        stx     mus_p0
+        sep     #$10
+        .i8
+        lda     mus_t0
+        ldx     #$00            ; osc0 freq lo/hi
+        jsr     doc_wr
+        lda     mus_t1
+        ldx     #$20
+        jsr     doc_wr
+        lda     mus_t0          ; rest (freq 0) -> mute for the duration
+        ora     mus_t1
+        beq     mt_r0
+        lda     #MUS_VOL0
+        bra     mt_w0
+mt_r0:  lda     #0
+mt_w0:  ldx     #$40
+        jsr     doc_wr
+mt_v1:
+        dec     mus_cd1         ; ---- voice 1 (bass, osc 1)
+        bne     mt_adv
+        rep     #$10
+        .i16
+        ldx     mus_p1
+        lda     music_data+2,x
+        bne     mt_h1
+        ldx     mus_b1
+mt_h1:  lda     music_data+2,x
+        sta     mus_cd1
+        lda     music_data,x
+        sta     mus_t0
+        lda     music_data+1,x
+        sta     mus_t1
+        inx
+        inx
+        inx
+        stx     mus_p1
+        sep     #$10
+        .i8
+        lda     mus_t0
+        ldx     #$01
+        jsr     doc_wr
+        lda     mus_t1
+        ldx     #$21
+        jsr     doc_wr
+        lda     mus_t0
+        ora     mus_t1
+        beq     mt_r1
+        lda     #MUS_VOL1
+        bra     mt_w1
+mt_r1:  lda     #0
+mt_w1:  ldx     #$41
+        jsr     doc_wr
+mt_adv:
+        lda     mus_loops       ; audition: 2 full loops -> next tune
+        cmp     #2
+        bcc     mt_x
+        jmp     music_next
+mt_x:   rts
+
+; =====================================================================
 ; strings
 ; =====================================================================
 str_title:  .byte "Claude Code",0         ; placeholder until the real header lands
@@ -2107,6 +2363,7 @@ str_welcome:.byte "Welcome to Claude Code ][",0
 str_ver:    .byte "v0.1.0",0
 str_by:     .byte "by Wells Workshop",0
 str_dial:   .byte "Dialing...",0
+str_tune:   .byte "N: next tune",0        ; audition build only
 dial_glyphs:.byte "*+:-"                    ; connect spinner cycle
 menu_ptrs:  .word mi0, mi1, mi2, mi3
 mi0:        .byte "1. Connect",0
@@ -2154,6 +2411,17 @@ mascot_at:  .res 2          ; screen address the mascot draws at (splash centers
 rowrep:     .res 1          ; splash draw: scanline repeat counter per stored row
 menusel:    .res 1          ; boot menu: selected item 0-3
 quitflag:   .res 1          ; CMD_QUIT seen: return to menu after this reply
+mus_tune:   .res 1          ; current tune index
+mus_on:     .res 1          ; nonzero while the menu music plays
+mus_loops:  .res 1          ; audition: completed melody loops of this tune
+mus_cd0:    .res 1          ; voice 0: vblanks left on current note
+mus_cd1:    .res 1          ; voice 1: vblanks left on current note
+mus_t0:     .res 1          ; scratch: freq lo of the note being started
+mus_t1:     .res 1          ; scratch: freq hi
+mus_p0:     .res 2          ; voice 0: cursor into music_data
+mus_b0:     .res 2          ; voice 0: stream start (for wrap)
+mus_p1:     .res 2          ; voice 1: cursor
+mus_b1:     .res 2          ; voice 1: stream start
 anim_ix:    .res 1          ; menu backdrop: splash_seq cursor
 anim_cd:    .res 1          ; menu backdrop: vblanks left on current frame
 hsavecol:   .res 2          ; do_header: saved cursor
