@@ -751,6 +751,8 @@ session_start:
         sta     quitflag
         lda     #TOPROW
         sta     cury
+        lda     #$0D            ; session-open probe: bridge answers with
+        jsr     aciaput         ; the header (or the LOCKED notice)
 main:
         jsr     draw_box
         jsr     read_line

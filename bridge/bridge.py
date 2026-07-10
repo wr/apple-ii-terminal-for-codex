@@ -160,6 +160,8 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode) -> None:
             log("modem dial string while already online - ignored")
             continue
         if not user or user == "\x03":
+            if backend:      # session-open probe: refresh the real header
+                send_header(term, backend)
             term.write(EOT)
             continue
         if user.startswith("/"):
@@ -256,8 +258,19 @@ def require_pairing(term: Terminal, args) -> bool:
         if line is None:
             return False
         line = line.strip()
-        if line.upper().startswith("ATD") or not line:
-            continue  # the client's auto-dial / blank lines aren't guesses
+        if line.upper().startswith("ATD"):
+            continue  # the client's auto-dial isn't a guess
+        if not line:
+            # the client's session-open CR probe: answer with the lock
+            # notice as a header frame - an idle client renders headers,
+            # so the user sees LOCKED without having to type first
+            if args.app and not prompted:
+                term.write(b"\x0e")
+                term.write_line("Claude Code Terminal")
+                term.write_line("LOCKED - type the pairing code")
+                term.write_line("(it's on the bridge console)")
+                prompted = True
+            continue
         if line == args.pair_code:
             _paired_peers.add(peer)
             _save_paired(_paired_peers)  # survives bridge restarts

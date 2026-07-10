@@ -587,6 +587,11 @@ session_start:
         and     #$08
         sta     dcd_active
 
+        lda     #$0D            ; session-open probe: the bridge answers
+        jsr     sccput          ; with the header - or, if this device
+                                ; isn't paired, a LOCKED header telling
+                                ; the user to type the code
+
 ; =====================================================================
 ; main loop
 ; =====================================================================
@@ -2326,8 +2331,8 @@ dl2:    iny
 ; ($C03C ctrl / $C03D data / $C03E-F address). Never write a $00
 ; sample: it halts the oscillator.
 ; =====================================================================
-MUS_VOL0 = $2C          ; melody oscillator volume (~30%; both voices now
-MUS_VOL1 = $1C          ; bass osc volume - the $E1 fix made the bass audible)
+MUS_VOL0 = $1A          ; melody oscillator volume (~10% - per Wells on metal)
+MUS_VOL1 = $11          ; bass oscillator volume
 GLU_CTRL = $C03C
 GLU_DATA = $C03D
 GLU_ALO  = $C03E
