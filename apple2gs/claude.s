@@ -272,6 +272,8 @@ act_connect:
         TEXT    str_dial, 36, 21, 2
         stz     dialres
         stz     mdm_c1
+        lda     #2
+        sta     dcol            ; dial-echo column on row 22
         jsr     modem_dial
         ldx     #30             ; 30 beats of 6 vblanks = ~3s
 ac_lp:
@@ -300,8 +302,11 @@ ac_w:   jsr     vbl_edge
 ac_rx:  jsr     havebyte        ; classify any modem chatter from this beat
         beq     ac_ck
         jsr     getbyte
+        pha
         jsr     dial_byte
-        bra     ac_rx
+        pla
+        jsr     dial_echo       ; ...and show it: a failed dial should
+        bra     ac_rx           ; leave evidence on the screen
 ac_ck:  plx
         lda     dialres
         cmp     #1              ; CONNECT -> go now
@@ -903,6 +908,50 @@ md_snd: lda     dial_str,x
 md_cr:  lda     #$0D
         jsr     sccput
         rts
+
+; dial_echo - print the modem's responses on row 22 during the dial,
+; gray, one line at a time (CR clears the row). Diagnosis beats a
+; spinner when a dial goes sideways in the field.
+dial_echo:
+        .a8
+        .i8
+        and     #$7F
+        cmp     #$0D
+        beq     @nl
+        cmp     #$20
+        bcc     @x
+        cmp     #$7F
+        bcs     @x
+        ldx     dcol
+        cpx     #78
+        bcs     @x              ; clip long lines at the right edge
+        pha
+        rep     #$20            ; own cursor: the beat spinner moves the
+        .a16                    ; shared one every ~100ms
+        lda     #0
+        sta     curcol
+        lda     #22
+        sta     currow
+        sep     #$20
+        .a8
+        lda     dcol
+        rep     #$20
+        .a16
+        and     #$00FF
+        sta     curcol
+        sep     #$20
+        .a8
+        lda     #1              ; gray
+        sta     txtcolor
+        pla
+        jsr     putchar
+        inc     dcol
+        rts
+@nl:    lda     #22
+        jsr     clear_rowA
+        lda     #2
+        sta     dcol
+@x:     rts
 
 ; dial_byte - classify modem response lines during the dial window, one
 ; rx byte at a time. First letter E(RROR)/B(USY) or "NO.." = fail,
@@ -2231,15 +2280,28 @@ GLU_DATA = $C03D
 GLU_ALO  = $C03E
 GLU_AHI  = $C03F
 
+; glu_wait - the real Sound GLU raises bit7 (busy) around DOC cycles;
+; accesses made while it's set are lost. KEGS doesn't model this, so
+; "plays in KEGS" proves nothing (the SCC lesson, sound edition).
+glu_wait:
+        .a8
+        pha
+gw_lp:  lda     GLU_CTRL
+        bmi     gw_lp
+        pla
+        rts
+
 ; doc_wr - write A to DOC register X
 doc_wr:
         .a8
         .i8
         pha
+        jsr     glu_wait
         lda     #$08            ; ctrl: DOC registers, no autoinc, volume 8
         sta     GLU_CTRL
         stx     GLU_ALO
         stz     GLU_AHI
+        jsr     glu_wait
         pla
         sta     GLU_DATA
         rts
@@ -2248,17 +2310,19 @@ doc_wr:
 snd_init:
         .a8
         .i8
+        jsr     glu_wait
         lda     #$68            ; ctrl: sound RAM + autoincrement + volume 8
         sta     GLU_CTRL
         stz     GLU_ALO
         stz     GLU_AHI
         ldx     #0
-si_wv:  lda     wave_data,x
+si_wv:  jsr     glu_wait
+        lda     wave_data,x
         sta     GLU_DATA        ; autoincrement walks sound RAM $0000-$00FF
         inx
         bne     si_wv
-        lda     #2              ; $E1: scan 2 oscillators ((n-1)*2)
-        ldx     #$E1
+        lda     #4              ; $E1 osc enable = count*2 -> TWO oscillators
+        ldx     #$E1            ; ($E1=2 enabled one: the bass never played)
         jsr     doc_wr
         lda     #0              ; wave pointers -> sound RAM page 0
         ldx     #$80
@@ -2465,6 +2529,7 @@ quitflag:   .res 1          ; CMD_QUIT seen: return to menu after this reply
 mus_on:     .res 1          ; nonzero while the menu ditty plays
 dialres:    .res 1          ; dial window: 0 silence, 1 CONNECT, 2 failure
 mdm_c1:     .res 1          ; dial window: first char of current rx line
+dcol:       .res 1          ; dial window: echo column on row 22
 mus_cd0:    .res 1          ; voice 0: vblanks left on current note
 mus_cd1:    .res 1          ; voice 1: vblanks left on current note
 mus_t0:     .res 1          ; scratch: freq lo of the note being started

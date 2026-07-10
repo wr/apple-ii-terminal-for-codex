@@ -219,10 +219,18 @@ def require_pairing(term: Terminal, args) -> bool:
     if peer in _paired_peers:
         return True
     log(f"pairing: waiting for code from {peer} (code: {args.pair_code})")
-    while not term.closed:
+    if args.app:
+        # An idle native client discards unsolicited text (stray modem
+        # chatter protection) but always renders header frames - so the
+        # lock notice goes out as one, visible the moment the session
+        # screen appears.
+        term.write(b"\x0e")
+        term.write_line("Claude Code Terminal")
+        term.write_line("LOCKED - type the pairing code")
+        term.write_line("(shown on the bridge console)")
+    else:
         term.write_line("Locked. Enter the pairing code shown on the bridge.")
-        if args.app:
-            term.write(EOT)
+    while not term.closed:
         line = term.read_line()
         if line is None:
             return False
@@ -231,11 +239,16 @@ def require_pairing(term: Terminal, args) -> bool:
             continue  # the client's auto-dial / blank lines aren't guesses
         if line == args.pair_code:
             _paired_peers.add(peer)
-            term.write_line("Paired.")
             log(f"pairing: {peer} paired")
+            term.write_line("Paired.")
+            if args.app:
+                term.write(EOT)  # the client waits on end-of-reply
             return True
         log(f"pairing: wrong code from {peer}")
         time.sleep(1.0)  # no rapid guessing
+        term.write_line("Wrong code - it's printed on the bridge console.")
+        if args.app:
+            term.write(EOT)
     return False
 
 
