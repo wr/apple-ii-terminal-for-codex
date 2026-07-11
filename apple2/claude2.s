@@ -764,7 +764,21 @@ act_quit:
 ; connect - junk-flush, dial, classify the modem's verdict (W-477)
 ; =====================================================================
 act_connect:
-        lda     #RULE1
+        ; Still online from the last session? Only DCD can say - and only
+        ; if the pin has ever read "no carrier" (dcd_trust), which proves
+        ; it's a live signal and not strapped. A machine whose DCD never
+        ; moves keeps dialing every time, exactly as before.
+        lda     ACIA_S
+        and     #$20            ; 6551 status bit5: 1 = no carrier
+        bne     @nocar
+        lda     dcd_trust
+        beq     @dial0
+        lda     rb_head         ; carrier's still up: skip the redial,
+        sta     rb_tail         ; straight into the session
+        jmp     session_start
+@nocar: lda     #1              ; the pin can go high, so a low means a carrier
+        sta     dcd_trust
+@dial0: lda     #RULE1
         jsr     clear_rowA
         lda     #INPUTR
         jsr     clear_rowA
@@ -807,12 +821,29 @@ act_connect:
         tax
         lda     dialres
         cmp     #1
-        beq     @sess           ; CONNECT
+        beq     @hold           ; CONNECT: settled - let the theater end
         cmp     #2
         beq     @fail           ; ERROR/BUSY/NO x
         dex
         bne     @beat
-@sess:  jmp     session_start   ; silence after 3s = emulator/already online
+        jmp     session_start   ; silence after 3s = emulator/already online
+        ; A fast modem answers mid-theater; a buzz chopped at half a note
+        ; reads as a glitch, not carrier detect (W-517). The verdict is in,
+        ; so stop classifying - play out the storyboard, still draining rx
+        ; (the 6551 buffers ONE byte).
+@hold:  lda     dsnd_ix
+        cmp     #45
+        bcs     @sess
+        jsr     dsnd_beat
+        ldy     #2
+@hfw:   jsr     frame_wait
+        dey
+        bne     @hfw
+@hrx:   jsr     havebyte
+        beq     @hold
+        jsr     getbyte
+        jmp     @hrx
+@sess:  jmp     session_start
 @fail:  lda     #INPUTR
         jsr     clear_rowA
         STR     str_dfail, 2, INPUTR
@@ -825,9 +856,10 @@ act_connect:
 ; dsnd_beat - one ~40ms chunk of dial-up theater per dial-window beat.
 ; The 1-bit impression of what a 1986 modem speaker did: dial tone,
 ; PULSE dialing 2-5-2 (rotary clicks are the beeper's native idiom),
-; a ring, the answer tone, then the two-carrier buzz. The chunk ends
-; when the window classifies a verdict - the cut to silence at CONNECT
-; is the period-correct payoff (Hayes ATM1: speaker off at carrier).
+; a ring, the answer tone, then the two-carrier buzz. A CONNECT verdict
+; stops the classifying but not the sound: the storyboard plays to its
+; end (W-517), and the silence after it is the Hayes ATM1 payoff
+; (speaker off at carrier). Failures cut it dead instead.
 dsnd_beat:
         ldx     dsnd_ix
         cpx     #45
@@ -982,11 +1014,15 @@ session_start:
 main:
         jsr     draw_box
         jsr     read_line
-        lda     linelen
+        lda     quitflag        ; Ctrl-C while idle = /quit
+        beq     @live
+        jmp     quit_to_menu
+@live:  lda     linelen
         beq     main
         jsr     draw_box
-        ; /quit handled locally and BEFORE any transmit - otherwise it
-        ; hits the wire and a modem in command mode interprets it
+        ; /quit and /exit handled locally and BEFORE any transmit -
+        ; otherwise the line hits the wire and a modem in command mode
+        ; interprets it
         lda     linelen
         cmp     #5
         bne     @notq
@@ -994,9 +1030,17 @@ main:
 @q:     lda     linebuf,x
         ora     #$20
         cmp     str_quit,x
-        bne     @notq
+        bne     @qx
         dex
         bpl     @q
+        jmp     quit_to_menu
+@qx:    ldx     #4
+@e:     lda     linebuf,x
+        ora     #$20
+        cmp     str_exit,x
+        bne     @notq
+        dex
+        bpl     @e
         jmp     quit_to_menu
 @notq:  jsr     echo_user
         jsr     send_line
@@ -1141,6 +1185,8 @@ read_line:
         beq     @bs
         cmp     #$7F
         beq     @bs
+        cmp     #$03            ; Ctrl-C while idle = /quit
+        beq     @cq
         cmp     #$20
         bcc     @key
         ldx     linelen
@@ -1162,6 +1208,10 @@ read_line:
         jsr     putscr
         dec     curx
         jmp     @key
+@cq:    lda     #1              ; flag it; main routes to quit_to_menu
+        sta     quitflag
+        lda     #0
+        sta     linelen
 @done:  lda     tcurx
         sta     curx
         lda     tcury
@@ -1183,8 +1233,13 @@ spinner:
         sta     KBDSTRB
         and     #$7F
         cmp     #$1B
+        beq     @esc
+        cmp     #$03            ; Ctrl-C: ask the bridge to stop the turn
         bne     @nk
-        lda     #1
+        lda     #$03            ; a bare byte on the wire; the bridge kills
+        jsr     aciaput         ; the claude turn and EOTs what it has
+        jmp     @lp
+@esc:   lda     #1
         sta     quitflag
         lda     #EOT            ; fake end-of-reply
         jmp     @stash
@@ -1265,11 +1320,20 @@ recv_reply:
         lda     #0
         sta     invflag
         sta     colorpend
+        sta     muteflag
         lda     havefirst
         beq     @next
         lda     firstbyte
         jmp     @disp
-@next:  jsr     getbyte
+@next:  lda     KBD             ; Ctrl-C mid-printout: stop drawing, but
+        bpl     @gb             ; keep draining to EOT (the reply is
+        sta     KBDSTRB         ; already fully sent - only display stops)
+        and     #$7F
+        cmp     #$03
+        bne     @gb
+        lda     #1
+        sta     muteflag
+@gb:    jsr     getbyte
         and     #$7F
 @disp:  ldx     colorpend
         beq     @nocp
@@ -1295,12 +1359,16 @@ recv_reply:
         beq     @rq
         cmp     #$0A
         beq     @next
+        ldx     muteflag        ; muted: consume, draw nothing
+        bne     @next
         jsr     cout
         jmp     @next
 @setcp: lda     #1
         sta     colorpend
         bne     @next
-@bullet:lda     #'*'
+@bullet:lda     muteflag
+        bne     @next
+        lda     #'*'
         jsr     cout
         lda     #' '
         jsr     cout
@@ -1423,6 +1491,7 @@ str_dial:   .byte "Dialing...",0
 str_dfail:  .byte "Dial failed - try the modem console",0
 str_atd:    .byte "ATDS=0",0
 str_quit:   .byte "/quit"
+str_exit:   .byte "/exit"
 str_gs:     .byte "THIS IS THE 8-BIT CLIENT - ON A IIGS RUN: BRUN COBJ",$0D,0
 str_mdm_t:  .byte "Hayes AT console",0
 str_mdm_h:  .byte "Keys go straight to the modem. Esc = menu.",0
@@ -1465,6 +1534,8 @@ linelen:    .res 1
 menusel:    .res 1
 dialres:    .res 1
 mdm_c1:     .res 1
+dcd_trust:  .res 1          ; DCD has read "no carrier" once: the pin is live
+muteflag:   .res 1          ; Ctrl-C during recv_reply: drain without drawing
 sp_ph:      .res 1
 sp_fr:      .res 2          ; spinner frames elapsed (~60/s): the bell gate
 wake_done:  .res 1          ; the wake gesture already greeted this boot

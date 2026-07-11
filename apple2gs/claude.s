@@ -266,6 +266,25 @@ mk_instr:
 ; connect: wipe the menu, dial, spin for ~3s, then the session
 act_connect:
         jsr     music_stop
+        ; Still online from the last session? Only DCD can say - and only
+        ; if the pin has ever read "no carrier" (dcd_trust), which proves
+        ; it's a live signal and not strapped. KEGS and a modem that
+        ; doesn't drive DCD never earn trust, so they dial every time,
+        ; exactly as before.
+        lda     #$10            ; WR0 Reset Ext/Status -> RR0 tracks the pin
+        sta     SCC_STAT
+        lda     SCC_STAT        ; RR0
+        and     #$08            ; DCD
+        beq     ac_nocar
+        lda     dcd_trust
+        beq     ac_dial
+        lda     rb_head         ; carrier's still up: skip the redial,
+        sta     rb_tail         ; straight into the session
+        jmp     session_start
+ac_nocar:
+        lda     #1              ; the pin can go low, so a high means a carrier
+        sta     dcd_trust
+ac_dial:
         lda     rb_head         ; drop stale rx from a previous session
         sta     rb_tail
         lda     #20
@@ -318,16 +337,29 @@ ac_rx:  jsr     havebyte        ; classify any modem chatter from this beat
         bra     ac_rx           ; leave evidence on the screen
 ac_ck:  plx
         lda     dialres
-        cmp     #1              ; CONNECT -> go now
-        beq     ac_sess
+        cmp     #1              ; CONNECT -> settled; let the theater end
+        beq     ac_hold
         cmp     #2              ; ERROR/BUSY/NO x -> say so, back to menu
         beq     ac_fail
         dex
         bne     ac_lp
         ; 3s of silence = no modem in the path (KEGS) or already online:
-        ; proceed, exactly like before
+        ; proceed - through the same ring-out as a fast CONNECT
+        ; A fast modem answers mid-theater; a buzz chopped at half a note
+        ; reads as a glitch, not carrier detect (W-517). The verdict is in,
+        ; so stop classifying - just drain rx and let the stream finish.
+ac_hold:
+        lda     mus_on
+        beq     ac_sess
+        jsr     vbl_edge
+        jsr     music_tick
+ac_hrx: jsr     havebyte
+        beq     ac_hold
+        jsr     getbyte
+        jsr     dial_echo
+        bra     ac_hrx
 ac_sess:
-        jsr     music_stop      ; hard cut: the silence IS carrier detect
+        jsr     music_stop      ; the stream just ended; halt the oscillators
         jmp     session_start
 ac_fail:
         jsr     music_stop
@@ -612,12 +644,17 @@ main:
         and     #$F0            ; DEBUG breadcrumb: black border = UI fully up
         sta     BORDERCOL
         jsr     read_line
+        lda     quitflag        ; Ctrl-C while idle = /quit
+        beq     mn_live
+        jmp     quit_to_menu
+mn_live:
         lda     linelen
         beq     main
         jsr     draw_box        ; clear typed text from the input box on Enter
-        ; /quit is handled locally and BEFORE any transmit - otherwise the
-        ; line hits the wire, and with no carrier the modem (in command
-        ; mode) interprets it (Wells saw "/quit" land on the WiModem).
+        ; /quit and /exit are handled locally and BEFORE any transmit -
+        ; otherwise the line hits the wire, and with no carrier the modem
+        ; (in command mode) interprets it (Wells saw "/quit" land on the
+        ; WiModem).
         lda     linelen
         cmp     #5
         bne     mn_notq
@@ -625,9 +662,18 @@ main:
 mn_qck: lda     linebuf,x
         ora     #$20            ; case-fold ('/' has bit 5 set already)
         cmp     str_quit,x
-        bne     mn_notq
+        bne     mn_exck
         dex
         bpl     mn_qck
+        jmp     quit_to_menu
+mn_exck:
+        ldx     #4
+mn_eck: lda     linebuf,x
+        ora     #$20
+        cmp     str_exit,x
+        bne     mn_notq
+        dex
+        bpl     mn_eck
         jmp     quit_to_menu
 mn_notq:
         jsr     echo_user
@@ -749,6 +795,8 @@ rl_haskey:
         beq     rl_bs
         cmp     #$7F            ; DEL key -> also backspace
         beq     rl_bs
+        cmp     #$03            ; Ctrl-C while idle = /quit
+        beq     rl_cc
         cmp     #$20            ; below space -> ignore
         bcc     rl_key
         cmp     #$7F
@@ -797,6 +845,9 @@ rl_bs:
         sep     #$20
         .a8
         bra     rl_key
+rl_cc:  lda     #1              ; flag it; main routes to quit_to_menu
+        sta     quitflag        ; (a jmp from here would leak stack)
+        stz     linelen
 rl_done:
         ; null-terminate linebuf
         ldx     linelen
@@ -1316,8 +1367,13 @@ sp_lp:
         sta     KBDSTRB
         and     #$7F
         cmp     #$1B
+        beq     sp_esc
+        cmp     #$03            ; Ctrl-C: ask the bridge to stop the turn
         bne     sp_nk
-        lda     #1
+        lda     #$03            ; a bare byte on the wire; the bridge kills
+        jsr     sccput          ; the claude turn and EOTs what it has
+        bra     sp_nk
+sp_esc: lda     #1
         sta     quitflag
         lda     #EOT            ; fake end-of-reply: recv_reply finishes
         bra     sp_exj          ; instantly, main sees quitflag -> menu
@@ -1538,11 +1594,21 @@ recv_reply:
         lda     #1              ; replies default to gray
         sta     txtcolor
         stz     colorpend
+        stz     muteflag
         lda     havefirst       ; spinner already pulled the first real byte
         beq     rr_next
         lda     firstbyte
         bra     rr_disp
 rr_next:
+        lda     KBD             ; Ctrl-C mid-printout: stop drawing, but
+        bpl     rr_gb           ; keep draining to EOT (the reply is
+        sta     KBDSTRB         ; already fully sent - only display stops)
+        and     #$7F
+        cmp     #$03
+        bne     rr_gb
+        lda     #1
+        sta     muteflag
+rr_gb:
         jsr     getbyte
         and     #$7F
 rr_disp:
@@ -1564,6 +1630,8 @@ rr_nocp:
         beq     rr_quit
         cmp     #$0A            ; skip LF
         beq     rr_next
+        ldx     muteflag        ; muted: consume, draw nothing
+        bne     rr_next
         jsr     cout
         bra     rr_next
 rr_quit:
@@ -1575,6 +1643,8 @@ rr_setcp:
         sta     colorpend
         bra     rr_next
 rr_bullet:
+        lda     muteflag
+        bne     rr_next
         jsr     draw_bullet
         bra     rr_next
 rr_header:
@@ -2639,6 +2709,7 @@ str_by:     .byte "by Wells Workshop",0
 str_dial:   .byte "Dialing...",0
 str_dfail:  .byte "Dial failed - try the modem console",0
 str_quit:   .byte "/quit"                 ; matched locally in the main loop
+str_exit:   .byte "/exit"                 ; same length, same treatment
 str_nocarr: .byte "* connection lost - back to menu",0
 dial_glyphs:.byte "*+:-"                    ; connect spinner cycle
 menu_ptrs:  .word mi0, mi1, mi2, mi3
@@ -2663,7 +2734,7 @@ str_ins_m2: .byte "    AT&Z0=BRIDGE.IP:6400  then  AT&W    (use the Modem consol
 str_ins_m3: .byte "  after that, Connect dials it automatically.",0
 str_ins_s0: .byte "SERIAL:",0
 str_ins_s1: .byte "  IIgs modem port, 9600 8N1 - this client sets that up itself.",0
-str_ins_u1: .byte "In the session: /new /mode /help /quit. Arrows scroll. Ctrl-Reset quits.",0
+str_ins_u1: .byte "In session: /new /mode /help /quit, Ctrl-C. Arrows scroll. Ctrl-Reset quits.",0
 str_ins_u2: .byte "Wells Workshop",0
 str_anykey: .byte "press any key to return",0
 str_model:  .byte "",0
@@ -2693,6 +2764,8 @@ mus_relv:   .res 1          ; release ramp: current volume (0 = not releasing)
 wake_done:  .res 1          ; the wake gesture already greeted this boot
 dialres:    .res 1          ; dial window: 0 silence, 1 CONNECT, 2 failure
 dcd_active: .res 1          ; nonzero if DCD was asserted at session start
+dcd_trust:  .res 1          ; DCD has read "no carrier" once: the pin is live
+muteflag:   .res 1          ; Ctrl-C during recv_reply: drain without drawing
 mdm_c1:     .res 1          ; dial window: first char of current rx line
 dcol:       .res 1          ; dial window: echo column on row 22
 mus_cd0:    .res 1          ; voice 0: vblanks left on current note

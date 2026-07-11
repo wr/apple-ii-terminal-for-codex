@@ -119,6 +119,24 @@ class Terminal:
         self.write_text(text)
         self.write(self.cfg.newline.encode("ascii"))
 
+    def poll_ctrl_c(self) -> bool:
+        """Drain whatever is waiting on the channel and report whether a
+        Ctrl-C (0x03) was in it. Called while a reply is generating - the
+        native client sends a bare 0x03 to cancel the turn. Anything else
+        arriving mid-generation is type-ahead we don't support, or modem
+        chatter; either way it's discarded. Costs at most one read timeout
+        (~0.2s) when the line is quiet."""
+        seen = False
+        while True:
+            b = self.ch.read_byte()
+            if b is None:
+                self._closed = True
+                return seen
+            if b == -1:
+                return seen
+            if (b & 0x7F) == CTRL_C:
+                seen = True
+
     def read_line(self, prompt: str = "") -> str | None:
         """Read one CR-terminated line. Returns None if the channel closed.
 

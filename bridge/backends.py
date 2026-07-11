@@ -140,6 +140,11 @@ class Backend:
         """Optional: fetch header/model info before the first user message."""
         pass
 
+    def cancel(self) -> None:
+        """Stop an in-flight stream() early (the client sent Ctrl-C). Safe to
+        call from another thread; a backend that can't cancel just ignores it."""
+        pass
+
 
 # --------------------------------------------------------------------------- #
 # Chat: Messages API
@@ -157,11 +162,16 @@ class ChatBackend(Backend):
         self._max_tokens = max_tokens
         self._system = TERMINAL_SYSTEM.format(cols=cols)
         self._messages: list[dict] = []
+        self._cancel = False
 
     def reset(self) -> None:
         self._messages = []
 
+    def cancel(self) -> None:
+        self._cancel = True  # checked between streamed chunks
+
     def stream(self, user_text: str) -> Iterator[str]:
+        self._cancel = False
         self._messages.append({"role": "user", "content": user_text})
         reply_parts: list[str] = []
         try:
@@ -173,8 +183,15 @@ class ChatBackend(Backend):
                 messages=self._messages,
             ) as stream:
                 for text in stream.text_stream:
+                    if self._cancel:
+                        break
                     reply_parts.append(text)
                     yield text
+            if self._cancel:
+                # keep the partial turn so the transcript stays coherent
+                self._messages.append({"role": "assistant",
+                                       "content": "".join(reply_parts) or "(interrupted)"})
+                return
             final = stream.get_final_message()
             self._messages.append({"role": "assistant", "content": final.content})
         except Exception as exc:  # surface the error to the terminal, keep going
@@ -203,6 +220,8 @@ class CodeBackend(Backend):
         # whole time instead of stopping at the first tool call.
         self._show_tools = show_tools
         self._session_id: str | None = None
+        self._proc: subprocess.Popen | None = None  # the in-flight turn, if any
+        self._cancelled = False
         # Seed from the last run so the header shows a real model at boot, before
         # the first reply's init event arrives.
         self._last_model = read_cached_model()
@@ -310,9 +329,19 @@ class CodeBackend(Backend):
             cmd += ["--resume", self._session_id]
         return cmd
 
+    def cancel(self) -> None:
+        """Kill the in-flight `claude -p` turn (the client sent Ctrl-C).
+        The pipe EOFs, stream() winds down, and the exit-code complaint is
+        suppressed because we're the ones who shot it."""
+        self._cancelled = True
+        proc = self._proc
+        if proc and proc.poll() is None:
+            proc.terminate()
+
     def stream(self, user_text: str) -> Iterator[str]:
         self._last_duration_ms = None
         self._last_output_tokens = None
+        self._cancelled = False
         try:
             proc = subprocess.Popen(
                 self._build_cmd(user_text),
@@ -327,6 +356,7 @@ class CodeBackend(Backend):
             yield f"\n[bridge error: '{self._bin}' not found on the host]"
             return
 
+        self._proc = proc
         assert proc.stdout is not None
         for line in proc.stdout:
             line = line.strip()
@@ -339,6 +369,9 @@ class CodeBackend(Backend):
             yield from self._render_event(event)
 
         proc.wait()
+        self._proc = None
+        if self._cancelled:
+            return  # we killed it; a nonzero exit code is expected, not news
         if proc.returncode not in (0, None):
             err = (proc.stderr.read() if proc.stderr else "").strip()
             yield f"\n[claude exited {proc.returncode}{': ' + err if err else ''}]"

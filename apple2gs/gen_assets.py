@@ -600,11 +600,12 @@ SND_WAKE0 = [(hz, 3) for hz in (220.0, 261.6, 329.6, 392.0, 440.0,
                                 523.3, 587.3)] + [(659.3, 26)]
 SND_WAKE1 = [(0, 15), (329.6, 6), (440.0, 26)]
 
-# DIAL - the Connect theater: the real 1986 dial-up soundscape, cut to
-# silence the moment the modem says CONNECT (the Hayes ATM1 arc - the
-# silence IS carrier detect). Every element is the documented tone pair,
-# which is exactly what two DOC voices are for. The DTMF digits spell
-# C-L-A-U-D-E on a phone keypad.
+# DIAL - the Connect theater: the real 1986 dial-up soundscape. The
+# stream plays through even when the modem answers fast (W-517: a buzz
+# chopped mid-note read as a glitch); the silence AFTER it is the Hayes
+# ATM1 arc - speaker off at carrier. A failed dial still cuts it dead.
+# Every element is the documented tone pair, which is exactly what two
+# DOC voices are for. The DTMF digits spell C-L-A-U-D-E on a phone keypad.
 _DTMF = {"2": (697, 1336), "5": (770, 1336), "8": (852, 1336),
          "3": (697, 1477)}
 

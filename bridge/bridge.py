@@ -24,7 +24,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import queue
 import sys
+import threading
 import time
 
 from backends import ChatBackend, CodeBackend
@@ -48,7 +50,7 @@ HELP = [
     "  /mode chat    plain Q&A with Claude (safe)",
     "  /mode code    real Claude Code (edits files here!)",
     "  /model NAME   switch model (opus, sonnet, haiku...)",
-    "  /quit         hang up",
+    "  /quit /exit   back to the menu (Ctrl-C when idle does this too)",
     "code mode: other /commands go to Claude Code itself -",
     "  /cost /context /compact and skills work; TUI-only ones say so.",
     "",
@@ -208,8 +210,9 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode) -> None:
             return
         user = user.strip()
         if user.upper().startswith("ATD"):
-            # the client dials unconditionally at startup; when the modem was
-            # already online the dial string comes through to us - swallow it
+            # Connect on the client's menu dials unconditionally; when the
+            # modem was already online the dial string comes through to us
+            # as data - swallow it
             log("modem dial string while already online - ignored")
             continue
         if not user or user == "\x03":
@@ -242,13 +245,40 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode) -> None:
         # the entire think instead of stopping at the first streamed byte.
         # Width is cols-2: the reply renders as a Claude Code-style block, two
         # cells of bullet/indent in front of every line.
+        # The backend streams on a thread so the transport can be watched for
+        # a bare Ctrl-C (0x03) from the client - that cancels the turn; the
+        # partial reply still lands below, tagged as interrupted.
         fmt = StreamFormatter(cols - 2)
         lines: list[str] = []
         t0 = time.monotonic()
-        for chunk in backend.stream(user):
+        chunks: queue.Queue = queue.Queue()
+
+        def _pump(b=backend, u=user) -> None:
+            try:
+                for chunk in b.stream(u):
+                    chunks.put(chunk)
+            except Exception as exc:
+                chunks.put(f"\n[bridge error: {exc}]")
+            finally:
+                chunks.put(None)
+
+        threading.Thread(target=_pump, daemon=True).start()
+        interrupted = False
+        while True:
+            try:
+                chunk = chunks.get(timeout=0.2)
+            except queue.Empty:
+                # a lull: the only moment we touch the wire mid-turn
+                if not interrupted and term.poll_ctrl_c():
+                    interrupted = True
+                    backend.cancel()
+                if term.closed:
+                    backend.cancel()
+                    return
+                continue
+            if chunk is None:
+                break
             lines.extend(fmt.feed(chunk))
-            if term.closed:
-                return
         lines.extend(fmt.flush())
         send_header(term, backend)  # real header, drawn once by the client
         if lines:
@@ -256,11 +286,16 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode) -> None:
             term.write_line(lines[0])
             for out_line in lines[1:]:
                 term.write_line("  " + out_line if out_line else "")
-        foot = backend.footer()
-        if foot:
-            term.write_line("")          # blank line before the footer
-            term.write(b"\x01\x01")      # gray (reply may have ended mid-color)
-            term.write_line("* " + foot)
+        if interrupted:
+            term.write_line("")
+            term.write(b"\x01\x01")      # gray
+            term.write_line("* Interrupted by user")
+        else:
+            foot = backend.footer()
+            if foot:
+                term.write_line("")      # blank line before the footer
+                term.write(b"\x01\x01")  # gray (reply may have ended mid-color)
+                term.write_line("* " + foot)
         term.write(EOT)
         show_reply(peer, time.monotonic() - t0, len(lines), mode)
 
@@ -427,7 +462,7 @@ def handle_command(cmd: str, term: Terminal, args, backend, mode):
             term.write_line(line)
         return None
 
-    if name == "/quit":
+    if name in ("/quit", "/exit"):
         term.write_line("Goodbye.")
         return False
 
