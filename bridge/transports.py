@@ -108,6 +108,21 @@ class _TCPChannel(Channel):
             self.peer = sock.getpeername()[0]
         except OSError:
             self.peer = None
+        # Reap ghost peers: a modem that drops without a FIN (power cycle,
+        # WiFi blip) leaves the bridge waiting on this socket forever, and
+        # a bridge that never returns to accept() answers redials with
+        # silence - the modem reports NO ANSWER. Keepalive probes kill the
+        # dead session within ~75s. (TCP_KEEPALIVE = macOS idle-seconds,
+        # TCP_KEEPIDLE = Linux; set whichever exists.)
+        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        for opt, val in (("TCP_KEEPALIVE", 45), ("TCP_KEEPIDLE", 45),
+                         ("TCP_KEEPINTVL", 10), ("TCP_KEEPCNT", 3)):
+            if hasattr(socket, opt):
+                try:
+                    self._sock.setsockopt(
+                        socket.IPPROTO_TCP, getattr(socket, opt), val)
+                except OSError:
+                    pass
 
     def read_byte(self) -> Optional[int]:
         try:
@@ -149,7 +164,8 @@ class TCPTransport:
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind((self.host, self.port))
-        srv.listen(1)
+        srv.listen(4)   # redials during a stale session must complete the
+                        # TCP handshake, or the modem times out: NO ANSWER
         self._srv = srv
         try:
             while True:

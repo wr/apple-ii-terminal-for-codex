@@ -70,17 +70,17 @@ def log(msg: str) -> None:
     print(f"{GRAY}{time.strftime('%H:%M:%S')} · {msg}{OFF}", flush=True)
 
 
-def show_user(text: str) -> None:
+def show_user(peer, text: str) -> None:
     """Mirror a line the Apple II user typed."""
-    print(f"{time.strftime('%H:%M:%S')} {BOLD}> {text}{OFF}", flush=True)
+    print(f"{GRAY}{time.strftime('%H:%M:%S')} {peer or 'client'}{OFF} "
+          f"{BOLD}> {text}{OFF}", flush=True)
 
 
-def show_reply(lines: list, secs: float, mode: str) -> None:
-    """Mirror the reply the Apple II just received."""
-    for line in lines:
-        print(f"{GRAY}  {line}{OFF}")
-    print(f"{CORAL}· {mode} replied in {secs:.1f}s "
-          f"({len(lines)} lines){OFF}", flush=True)
+def show_reply(peer, secs: float, nlines: int, mode: str) -> None:
+    """Note that a reply went out - metadata only, not the text."""
+    print(f"{GRAY}{time.strftime('%H:%M:%S')} {peer or 'client'}{OFF} "
+          f"{CORAL}< {mode} reply sent · {secs:.1f}s · {nlines} lines{OFF}",
+          flush=True)
 
 
 def _lan_ip():
@@ -178,6 +178,7 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode) -> None:
     echo) and just relays the backend's reply, then sends EOT. The Apple II
     client draws all the UI itself."""
     cols = args.cols
+    peer = getattr(term.ch, "peer", None)
     if backend_err:
         term.write_line(f"[chat unavailable: {backend_err}]")
         term.write(EOT)
@@ -200,7 +201,7 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode) -> None:
                 send_header(term, backend)
             term.write(EOT)
             continue
-        show_user(user)
+        show_user(peer, user)
         if user.startswith("/"):
             keep = handle_command(user, term, args, backend, mode)
             if keep is False:
@@ -241,7 +242,7 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode) -> None:
             term.write(b"\x01\x01")      # gray (reply may have ended mid-color)
             term.write_line("* " + foot)
         term.write(EOT)
-        show_reply(lines, time.monotonic() - t0, mode)
+        show_reply(peer, time.monotonic() - t0, len(lines), mode)
 
 
 def _pairing_store() -> str:
@@ -355,7 +356,7 @@ def run_session(term: Terminal, args) -> None:
         user = user.strip()
         if not user or user == "\x03":
             continue
-        show_user(user)
+        show_user(getattr(term.ch, "peer", None), user)
 
         if user.startswith("/"):
             keep = handle_command(user, term, args, backend, mode)
@@ -373,18 +374,19 @@ def run_session(term: Terminal, args) -> None:
         term.write_line("")
         term.write_line(f"Claude ({mode})>")
         fmt = StreamFormatter(cols)
-        mirror: list[str] = []
+        nlines = 0
         t0 = time.monotonic()
         for chunk in backend.stream(user):
             for out_line in fmt.feed(chunk):
                 term.write_line(out_line)
-                mirror.append(out_line)
+                nlines += 1
             if term.closed:
                 return
         for out_line in fmt.flush():
             term.write_line(out_line)
-            mirror.append(out_line)
-        show_reply(mirror, time.monotonic() - t0, mode)
+            nlines += 1
+        show_reply(getattr(term.ch, "peer", None),
+                   time.monotonic() - t0, nlines, mode)
 
 
 def handle_command(cmd: str, term: Terminal, args, backend, mode):
@@ -534,7 +536,11 @@ def main(argv=None) -> int:
     try:
         for channel in transport.channels():
             peer = getattr(channel, "peer", None)
-            log(f"connected ({peer})" if peer else "connected")
+            note = f"connected ({peer})" if peer else "connected"
+            if args.pair_code and peer:
+                note += (" · known device" if peer in _paired_peers
+                         else " · NEW device - will ask for the pairing code")
+            log(note)
             t0 = time.monotonic()
             term = Terminal(channel, cfg)
             try:
