@@ -16,10 +16,9 @@ native text-mode client with the same menu and a blinking mascot in inverse
 video. The boot program reads the machine's ROM ID and picks the right one.
 The sound design is period-accurate: pressing Connect plays the real 1986
 dial-up soundscape — dial tone, touch-tones (they spell C-L-A-U-D-E on the
-keypad), ring, answer tone, carrier buzz — cut to silence the instant the
-modem says CONNECT, exactly like a Hayes with its speaker on. The 8-bit
-client renders the same scene as rotary pulse-dial clicks on the 1-bit
-speaker.
+keypad), ring, answer tone, carrier buzz — and then silence, exactly like a
+Hayes with its speaker on: quiet means carrier. The 8-bit client renders the
+same scene as rotary pulse-dial clicks on the 1-bit speaker.
 
 Every earlier AI-on-retro project we know of is a chat client. This is the
 real agentic tool — and the clients are bare-metal 65816 and 6502, not
@@ -83,7 +82,7 @@ One-time setup:
    AT&W
    ```
 
-   The client auto-dials entry 0 at startup. The boot menu also has a live
+   **Connect** on the boot menu dials entry 0. The boot menu also has a live
    Hayes AT console for whatever your modem needs.
 
 3. **Disk**: copy `CLAUDE.dsk` to the FloppyEmu SD card (5.25" mode, boots
@@ -92,7 +91,8 @@ One-time setup:
    ("file not contiguous"), and macOS fragments them more than you'd think.
    Already-fragmented card: `tools/install-sd.sh repair` fixes it once (the tool lives at [wr/floppyemu-sd](https://github.com/wr/floppyemu-sd)).
 
-4. Power on. The modem's already dialing while the splash plays. **Connect.**
+4. Power on and pick **Connect**. (If the modem's still online from a
+   previous session and drives DCD, Connect notices and skips the redial.)
 
 Updating later: download the new release image and re-run `install-sd.sh` —
 an existing image on the card is overwritten in place, which can't fragment.
@@ -111,9 +111,11 @@ Messages API (needs `ANTHROPIC_API_KEY`, and the one thing that needs
 `pip install anthropic`).
 
 Slash commands from the II: the bridge handles `/help`, `/new`/`/clear`,
-`/mode chat|code`, `/model NAME`, `/quit`; in code mode everything else
-passes through to the CLI, so `/cost`, `/context`, `/compact`, and your
-installed skills run for real.
+`/mode chat|code`, `/model NAME`, `/quit`/`/exit`; in code mode everything
+else passes through to the CLI, so `/cost`, `/context`, `/compact`, and your
+installed skills run for real. Ctrl-C interrupts a reply mid-think (the
+bridge kills the turn and sends what it has); pressed at an idle prompt it
+quits to the menu.
 
 ## Building from source
 
