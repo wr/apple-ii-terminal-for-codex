@@ -10,12 +10,16 @@ files, edits them, runs commands — all driven from a 40-year-old keyboard,
 with the results streaming back at 9600 baud.
 
 One disk boots every Apple II. On a IIgs it launches a native Super Hi-Res
-client (boot menu, animated mascot splash with chiptune on the Ensoniq
-wavetable synth, scrolling transcript, thinking spinner, scrollback); on a
-IIe, IIc, IIc Plus, or even a II+, it launches a native text-mode client
-with the same menu, a blinking mascot in inverse video, and a beeper
-rendition of the theme. The boot program reads the machine's ROM ID and
-picks the right one.
+client (boot menu, animated mascot splash, scrolling transcript, thinking
+spinner, scrollback); on a IIe, IIc, IIc Plus, or even a II+, it launches a
+native text-mode client with the same menu and a blinking mascot in inverse
+video. The boot program reads the machine's ROM ID and picks the right one.
+The sound design is period-accurate: pressing Connect plays the real 1986
+dial-up soundscape — dial tone, touch-tones (they spell C-L-A-U-D-E on the
+keypad), ring, answer tone, carrier buzz — cut to silence the instant the
+modem says CONNECT, exactly like a Hayes with its speaker on. The 8-bit
+client renders the same scene as rotary pulse-dial clicks on the 1-bit
+speaker.
 
 Every earlier AI-on-retro project we know of is a chat client. This is the
 real agentic tool — and the clients are bare-metal 65816 and 6502, not
@@ -125,8 +129,8 @@ python3 preview.py assets.inc out.png   # render the SHR screen, no emulator
 
 Everything is generated from source at build time: the font from unscii-8
 (a real bitmap font — TTFs rasterized to 8×8 are mush), the entire splash
-animation machine-ported frame-by-frame from a gif, the music from note
-lists in `gen_assets.py`. The disk is a pristine DOS 3.3 System Master with
+animation machine-ported frame-by-frame from a gif, the sound effects from
+tone tables in `gen_assets.py`. The disk is a pristine DOS 3.3 System Master with
 both clients injected and a machine-detecting HELLO — which is why one image
 boots emulators, FloppyEmu, real drives, and every machine in the family.
 

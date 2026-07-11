@@ -106,6 +106,9 @@ start:
         stz     menusel
         stz     quitflag
         stz     mus_on
+        stz     mus_rel
+        stz     mus_relv
+        stz     wake_done
 
         lda     #$C1
         sta     NEWVIDEO
@@ -179,7 +182,11 @@ menu_screen:
         TEXT    str_welcome, 22, 16, 2
         TEXT    str_ver, 28, 17, 3
         TEXT    str_by, 31, 18, 3
-        jsr     music_start     ; the ditty plays once per menu visit
+        lda     wake_done       ; the wake gesture greets the FIRST menu
+        bne     mw_no           ; only - revisits are silent (W-488)
+        inc     wake_done
+        jsr     snd_wake
+mw_no:
         stz     anim_ix
         lda     #1
         sta     anim_cd
@@ -275,6 +282,7 @@ act_connect:
         lda     #2
         sta     dcol            ; dial-echo column on row 22
         jsr     modem_dial
+        jsr     snd_dialt       ; the dial-up theater plays under the window
         ldx     #30             ; 30 beats of 6 vblanks = ~3s
 ac_lp:
         phx
@@ -297,6 +305,7 @@ ac_lp:
         jsr     putchar
         ldy     #6
 ac_w:   jsr     vbl_edge
+        jsr     music_tick
         dey
         bne     ac_w
 ac_rx:  jsr     havebyte        ; classify any modem chatter from this beat
@@ -318,8 +327,10 @@ ac_ck:  plx
         ; 3s of silence = no modem in the path (KEGS) or already online:
         ; proceed, exactly like before
 ac_sess:
+        jsr     music_stop      ; hard cut: the silence IS carrier detect
         jmp     session_start
 ac_fail:
+        jsr     music_stop
         lda     #21
         jsr     clear_rowA
         TEXT    str_dfail, 21, 21, 2
@@ -632,6 +643,7 @@ mn_spin:
         jsr     send_line
         jsr     spinner
         jsr     recv_reply
+        jsr     bell_maybe      ; BEL semantics: ring once after a long think
         lda     quitflag        ; bridge sent CMD_QUIT during this reply?
         beq     main
 ; /quit acknowledged: restore the boot palette and rejoin the menu. The
@@ -939,6 +951,34 @@ scc_tab:
 scc_tab_end:
 
 ; =====================================================================
+; bell_maybe - one period bell when a reply lands after a >=15s think
+; (the spinner's second counter runs until the first reply byte). BEL
+; semantics: a notification for a user who's looked away, not decoration.
+; Blocks ~0.6s while the tone rings down; the ring buffer stays serviced.
+bell_maybe:
+        .a8
+        .i8
+        lda     quitflag        ; session's over: leave quietly
+        bne     bm_x
+        lda     sp_huns
+        bne     bm_ring
+        lda     sp_tens
+        cmp     #2
+        bcs     bm_ring
+        cmp     #1
+        bne     bm_x
+        lda     sp_ones
+        cmp     #5
+        bcc     bm_x
+bm_ring:
+        jsr     snd_bell
+bm_lp:  jsr     rb_poll
+        jsr     vbl_edge
+        jsr     music_tick
+        lda     mus_on
+        bne     bm_lp
+bm_x:   rts
+
 ; modem_dial - unconditionally send "ATDS=0" CR (dial phone book entry 0).
 ;   No connected-check: a probe can't work, because in command mode the
 ;   modem ECHOES the probe byte and the echo is indistinguishable from an
@@ -2402,19 +2442,57 @@ si_wv:  jsr     glu_wait
         jsr     doc_wr
         jmp     music_stop      ; born silent: halt both oscillators
 
-; music_start - aim both voices at their streams and unhalt. The tune
-; plays through once; music_tick stops everything at the terminator.
-music_start:
+; snd_wake / snd_dialt / snd_bell - aim both voices at a stream pair and
+; unhalt. A stream plays through once; music_tick handles the end: sounds
+; started with mus_rel=1 get a fading release tail (the IIgs-beep decay),
+; mus_rel=0 stops hard (the dial theater dies mid-buzz at CONNECT anyway).
+snd_wake:
         .a8
         .i8
         rep     #$20
         .a16
-        lda     #MUS_V0
+        lda     #SND_WAKE0
         sta     mus_p0
-        lda     #MUS_V1
+        lda     #SND_WAKE1
         sta     mus_p1
         sep     #$20
         .a8
+        lda     #1
+        bra     snd_go
+snd_bell:
+        .a8
+        .i8
+        rep     #$20
+        .a16
+        lda     #SND_BELL0
+        sta     mus_p0
+        lda     #SND_BELL1
+        sta     mus_p1
+        sep     #$20
+        .a8
+        lda     #1
+        bra     snd_go
+snd_dialt:
+        .a8
+        .i8
+        rep     #$20
+        .a16
+        lda     #SND_DIAL0
+        sta     mus_p0
+        lda     #SND_DIAL1
+        sta     mus_p1
+        sep     #$20
+        .a8
+        lda     #0
+snd_go:
+        sta     mus_rel
+        stz     mus_relv
+        lda     #MUS_VOL0       ; restore full volumes (a release ramp
+        ldx     #$40            ; leaves them at the floor)
+        jsr     doc_wr
+        lda     #MUS_VOL1
+        ldx     #$41
+        jsr     doc_wr
         lda     #1              ; first tick fetches the first note
         sta     mus_cd0
         sta     mus_cd1
@@ -2450,16 +2528,38 @@ music_tick:
         bne     mt_on
         rts
 mt_on:
-        dec     mus_cd0         ; ---- voice 0 (melody, osc 0)
+        lda     mus_relv        ; ---- release tail: streams are done, the
+        beq     mt_str          ; last chord rings while volume steps down
+        dec     a
+        sta     mus_relv
+        cmp     #2
+        bcc     mt_fin
+        ldx     #$40
+        jsr     doc_wr
+        lda     mus_relv        ; voice 1 fades in step, offset by its
+        sec                     ; quieter base level
+        sbc     #MUS_VOL0-MUS_VOL1
+        bcs     mt_rl1
+        lda     #1
+mt_rl1: ldx     #$41
+        jsr     doc_wr
+        rts
+mt_fin: jmp     music_stop
+mt_str:
+        dec     mus_cd0         ; ---- voice 0 (osc 0)
         bne     mt_v1
         rep     #$10
         .i16
         ldx     mus_p0
-        lda     music_data+2,x  ; dur 0 = tune over: fall silent
+        lda     music_data+2,x  ; dur 0 = stream over
         bne     mt_h0
         sep     #$10
         .i8
-        jmp     music_stop
+        lda     mus_rel         ; fade out, or fall silent right now
+        beq     mt_fin
+        lda     #MUS_VOL0
+        sta     mus_relv
+        rts
 mt_h0:  lda     music_data+2,x
         sta     mus_cd0
         lda     music_data,x
@@ -2496,8 +2596,10 @@ mt_v1:
         bne     mt_h1
         sep     #$10
         .i8
-        lda     #0              ; just mute it; voice 0 ends the tune
-        ldx     #$41
+        lda     mus_rel         ; release tail: keep the chord ringing
+        bne     mt_x            ; (the ramp in mt_on fades it)
+        lda     #0              ; hard-stop sound: just mute this voice;
+        ldx     #$41            ; voice 0 ends the stream
         jmp     doc_wr
 mt_h1:  lda     music_data+2,x
         sta     mus_cd1
@@ -2585,7 +2687,10 @@ mascot_at:  .res 2          ; screen address the mascot draws at (splash centers
 rowrep:     .res 1          ; splash draw: scanline repeat counter per stored row
 menusel:    .res 1          ; boot menu: selected item 0-3
 quitflag:   .res 1          ; CMD_QUIT seen: return to menu after this reply
-mus_on:     .res 1          ; nonzero while the menu ditty plays
+mus_on:     .res 1          ; nonzero while a sound plays
+mus_rel:    .res 1          ; 1 = this sound ends with a fading tail
+mus_relv:   .res 1          ; release ramp: current volume (0 = not releasing)
+wake_done:  .res 1          ; the wake gesture already greeted this boot
 dialres:    .res 1          ; dial window: 0 silence, 1 CONNECT, 2 failure
 dcd_active: .res 1          ; nonzero if DCD was asserted at session start
 mdm_c1:     .res 1          ; dial window: first char of current rx line

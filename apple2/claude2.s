@@ -75,6 +75,7 @@ entry:
         sta     rb_head
         sta     rb_tail
         sta     invflag
+        sta     wake_done
         lda     #2
         sta     dly_y           ; 1MHz frame delay; IIc+ scales it up
         lda     #1
@@ -569,8 +570,12 @@ menu_screen:
         lda     #10
         jsr     draw_at
         STR     str_by, 2, 23
-        jsr     menu_draw       ; menu visible before the jingle starts
-        jsr     jingle          ; once per menu visit; any key skips it
+        jsr     menu_draw       ; menu visible before the sound starts
+        lda     wake_done       ; the wake gesture greets the FIRST menu
+        bne     mw_no           ; only - revisits are silent (W-488)
+        inc     wake_done
+        jsr     jingle
+mw_no:
         lda     #0
         sta     blinkct
 menu_loop:
@@ -659,11 +664,12 @@ eyes_put:
         lda     tmp3
         jmp     putscr
 
-; jingle - the menu ditty (GROOVE's melody), squeezed through the
-; 1-bit speaker as cycle-counted square waves. Plays once; any key
-; aborts (the keypress is left for the menu loop). spdm stretches the
-; half-period loop on a 4MHz IIc+. Rests are notes with bit7 set on
-; the delay byte: same timing, no speaker toggles.
+; jingle - the once-per-boot wake gesture (replaced GROOVE, W-488): a
+; rising sweep that settles into a two-pitch shimmer - the 1-bit
+; impression of a chord. Not a melody on purpose. Cycle-counted square
+; waves; any key aborts (the keypress is left for the menu loop). spdm
+; stretches the half-period loop on a 4MHz IIc+. Rests are notes with
+; bit7 set on the delay byte: same timing, no speaker toggles.
 jingle:
         ldx     #0
 @note:  lda     jtab_d,x
@@ -695,14 +701,14 @@ jhalf:  bit     tmp             ; rest? (bit7)
         bne     @rep
         rts
 
-; GROOVE's melody at ~144bpm, up an octave (the delay byte's low 7
-; bits are the half-period in 5-cycle units at 1MHz, so the beeper's
-; floor is ~790Hz - and jingles live up there anyway). waves = full
-; cycles per note; long notes are split so waves fits a byte.
-jtab_d: .byte 126, 104|$80, 96, 85, 76, 85, 96, 96, 104|$80
-        .byte 114, 104|$80, 96, 85, 64, 76, 85, 85, 96, 0
-jtab_w: .byte 163, 200,    145, 82,183, 82,145,146, 134
-        .byte 183, 200,    145, 82,218, 92,163,163, 145
+; The wake: seven quick rising steps (~794Hz up to ~1587Hz - the delay
+; byte's low 7 bits are the half-period in 5-cycle units at 1MHz, so
+; the beeper's floor is ~790Hz), then a C6/G6 shimmer that stands in
+; for the GS client's landing chord. waves = full cycles per note.
+jtab_d: .byte 126, 106, 95, 84, 75, 67, 63
+        .byte  95,  63, 95, 63, 63, 0
+jtab_w: .byte  36,  42, 47, 54, 60, 67, 71
+        .byte  63,  95, 63, 95, 238
 
 menu_draw:
         ldx     #0
@@ -780,10 +786,13 @@ act_connect:
         bne     @dial
 @cr:    lda     #$0D
         jsr     aciaput
-        ldx     #45             ; ~3s dial window at 15 frames/beat... 45*4
+        lda     #0
+        sta     dsnd_ix
+        ldx     #45             ; ~3.5s dial window: theater chunk + 3 frames/beat
 @beat:  txa
         pha
-        ldy     #4
+        jsr     dsnd_beat       ; one chunk of dial-up theater (W-488)
+        ldy     #2
 @fw:    jsr     frame_wait
         dey
         bne     @fw
@@ -810,6 +819,110 @@ act_connect:
         dex
         bne     @fx
         jmp     menu_screen
+
+; dsnd_beat - one ~40ms chunk of dial-up theater per dial-window beat.
+; The 1-bit impression of what a 1986 modem speaker did: dial tone,
+; PULSE dialing 2-5-2 (rotary clicks are the beeper's native idiom),
+; a ring, the answer tone, then the two-carrier buzz. The chunk ends
+; when the window classifies a verdict - the cut to silence at CONNECT
+; is the period-correct payoff (Hayes ATM1: speaker off at carrier).
+dsnd_beat:
+        ldx     dsnd_ix
+        cpx     #45
+        bcs     @x
+        inc     dsnd_ix
+        lda     dsnd_tab,x
+        beq     @x
+        cmp     #1
+        beq     @dt
+        cmp     #2
+        beq     @ck
+        cmp     #3
+        beq     @rg
+        cmp     #4
+        beq     @an
+        lda     #83             ; 5 = the buzz: originate (~1205 Hz) and
+        ldy     #12             ; answer (~2381 Hz) carriers alternating
+        jsr     dtone
+        lda     #42
+        ldy     #24
+        jsr     dtone
+        lda     #83
+        ldy     #12
+        jsr     dtone
+        lda     #42
+        ldy     #24
+        jmp     dtone
+@dt:    lda     #127            ; dial tone impression: a low two-tone
+        ldy     #20             ; warble (the real 350+440 pair is below
+        jsr     dtone           ; the beeper's floor - octaves up)
+        lda     #101
+        ldy     #24
+        jmp     dtone
+@ck:    bit     SPKR            ; one rotary pulse: cone out...
+        ldy     #0
+@ckd:   jsr     rb_poll
+        dey
+        bne     @ckd
+        bit     SPKR            ; ...and back, a few ms later
+@x:     rts
+@rg:    lda     #114            ; ringback impression (~877 Hz)
+        ldy     #50
+        jmp     dtone
+@an:    lda     #45             ; answer tone (~2222 for Bell's 2225 Hz)
+        ldy     #120
+        jmp     dtone
+
+; the 45-beat storyboard: 0 rest, 1 dial tone, 2 pulse click, 3 ring,
+; 4 answer tone, 5 carrier buzz
+dsnd_tab:
+        .byte   1,1,1,1,1, 0            ; off-hook, dial tone
+        .byte   2,2, 0,0                ; pulse-dial 2 ...
+        .byte   2,2,2,2,2, 0,0          ; ... 5 ...
+        .byte   2,2, 0,0,0              ; ... 2
+        .byte   3,3,3,3, 0,0,0          ; one ring
+        .byte   4,4,4, 0                ; the answer whistle
+        .byte   5,5,5,5,5,5,5,5,5,5,5,5 ; carriers up - buzz until CONNECT
+
+; dtone - A = half-period (5-cycle units), Y = full cycles. The serial
+; ring is polled every half-cycle: the 6551 buffers ONE byte and the
+; modem is talking during the dial window.
+dtone:  sta     tmp2
+        sty     tmp4
+@w:     bit     SPKR
+        jsr     dhalf
+        jsr     rb_poll
+        bit     SPKR
+        jsr     dhalf
+        jsr     rb_poll
+        dec     tmp4
+        bne     @w
+        rts
+dhalf:  ldx     spdm
+@rep:   ldy     tmp2
+@d:     dey
+        bne     @d
+        dex
+        bne     @rep
+        rts
+
+; bell_maybe - the classic 1kHz ROM-style bell, once, when a reply lands
+; after a >=15s think (900 spinner frames). BEL semantics: a notification
+; for a user who's looked away, not decoration.
+bell_maybe:
+        lda     quitflag
+        bne     @x
+        lda     sp_fr+1
+        cmp     #>900
+        bcc     @x
+        bne     @ring
+        lda     sp_fr
+        cmp     #<900
+        bcc     @x
+@ring:  lda     #100            ; ~1 kHz for ~100ms: the $FBDD voice
+        ldy     #100
+        jmp     dtone
+@x:     rts
 
 ; dial_byte - first-letter line classifier: E/B = fail, NO.. = fail,
 ; CO.. = connect. Sets dialres 1/2. (Port of the GS routine.)
@@ -887,6 +1000,7 @@ main:
         jsr     send_line
         jsr     spinner
         jsr     recv_reply
+        jsr     bell_maybe      ; BEL semantics: ring once after a long think
         lda     quitflag
         beq     main
 quit_to_menu:
@@ -1060,6 +1174,8 @@ spinner:
         lda     #0
         sta     havefirst
         sta     sp_ph
+        sta     sp_fr           ; frame counter: bell_maybe's >=15s gate
+        sta     sp_fr+1
 @lp:    lda     KBD
         bpl     @nk
         sta     KBDSTRB
@@ -1132,7 +1248,13 @@ spinner:
         pla
         sta     cury
         jsr     frame_wait
-        jmp     @lp
+        inc     sp_fr           ; one frame of thinking (saturates: a
+        bne     @nf             ; wrap would un-ring an 18-minute bell)
+        lda     sp_fr+1
+        cmp     #$FF
+        beq     @nf
+        inc     sp_fr+1
+@nf:    jmp     @lp
 
 ; =====================================================================
 ; recv_reply - stream until EOT (mirror of the GS routine)
@@ -1342,6 +1464,9 @@ menusel:    .res 1
 dialres:    .res 1
 mdm_c1:     .res 1
 sp_ph:      .res 1
+sp_fr:      .res 2          ; spinner frames elapsed (~60/s): the bell gate
+wake_done:  .res 1          ; the wake gesture already greeted this boot
+dsnd_ix:    .res 1          ; dial theater: storyboard cursor
 hdr_row:    .res 1
 mcol:       .res 1
 tmp3:       .res 1

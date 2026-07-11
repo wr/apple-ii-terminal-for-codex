@@ -561,39 +561,27 @@ def emit_font():
     return "\n".join(lines)
 
 
-# ---- menu music: two-voice chiptunes for the Ensoniq DOC -------------------
-# Note streams are (freq_lo, freq_hi, dur_vblanks) triplets; dur 0 wraps the
-# voice. freq 0 = rest. With 2 oscillators scanned the DOC steps each one at
+# ---- event sounds: two-voice streams for the Ensoniq DOC --------------------
+# Streams are (freq_lo, freq_hi, dur_vblanks) triplets; dur 0 ends the voice.
+# freq 0 = rest. With 2 oscillators scanned the DOC steps each one at
 # 894886.25/(2+2) Hz; a 256-byte wave at resolution 0 repeats every 2^17
 # accumulator counts, so freq_reg = f_hz * 2^17 / scan_rate.
+# No melodies here by design: period comms tools were silent, so the app's
+# whole voice is three event sounds (W-488) - the wake gesture, the dial
+# theater, and the reply bell.
 DOC_SCAN = 894886.25 / 4
 
-def _hz(name):
-    semis = {"C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4,
-             "F": 5, "F#": 6, "Gb": 6, "G": 7, "G#": 8, "Ab": 8, "A": 9,
-             "A#": 10, "Bb": 10, "B": 11}
-    return 440.0 * 2 ** ((12 * (int(name[-1]) + 1) + semis[name[:-1]] - 69) / 12)
-
-def _voice(notes, bpm):
-    """notes: (name_or_R, beats). Durations use cumulative rounding so both
-    voices stay vblank-locked. Each melodic note gets a short articulation
-    gap shaved off its tail - the DOC free-runs, so back-to-back notes
-    otherwise smear together legato with no audible re-attack."""
-    out, cum, prev = [], 0.0, 0
-    for name, beats in notes:
-        cum += beats
-        end = round(cum * 3600 / bpm)      # 60 vblanks/sec, 60 s/min
-        total = max(1, min(255, end - prev))
-        prev = end
-        if name == "R":
-            out += [0, 0, total]
-            continue
-        f = max(1, min(0xFFFF, round(_hz(name) * 131072 / DOC_SCAN)))
-        gap = 2 if total >= 10 else (1 if total >= 3 else 0)
-        out += [f & 0xFF, f >> 8, total - gap]
-        if gap:
-            out += [0, 0, gap]
-    out += [0, 0, 0]                        # terminator: end of tune
+def _voice(segs):
+    """segs: (hz, vblanks) pairs, raw frequency; hz 0 = rest."""
+    out = []
+    for hz, vbl in segs:
+        assert 1 <= vbl <= 255
+        if hz <= 0:
+            out += [0, 0, vbl]
+        else:
+            f = max(1, min(0xFFFF, round(hz * 131072 / DOC_SCAN)))
+            out += [f & 0xFF, f >> 8, vbl]
+    out += [0, 0, 0]                        # terminator: end of stream
     return out
 
 def _wave():
@@ -604,34 +592,57 @@ def _wave():
         w = [(w[i - 1] + 2 * w[i] + w[(i + 1) % 256]) // 4 for i in range(256)]
     return [max(1, v) for v in w]
 
-# The menu ditty: "GROOVE", winner of a 4-round audition (2026-07-09).
-# Wells' bar spec: hit on 1, swung 2-e-&-a run, swung 3-&, beat 4 empty.
-# Swing = triplet-feel durations (1/3 + 1/6 beat pairs, the & at 2/3).
-# Played ONCE per menu visit, not looped.
-MUS_BPM = 152
-# the dooo-doot pair: dooo on 3, doot on the downbeat of 4. (The & of 3
-# read too tight, the swung & of 4 too long - Wells, one round each.)
-MUS_MEL = [("G4",.5),("R",.5),
-           ("C5",1/3),("D5",1/6),("E5",1/3),("D5",1/6),
-           ("C5",2/3),("R",1/3),("G4",1/3),("R",2/3),
-           ("A4",.5),("R",.5),
-           ("C5",1/3),("D5",1/6),("G5",1/3),("E5",1/6),
-           ("D5",2/3),("R",1/3),("C5",1/3),("R",2/3)]
-# bass on the downbeats only - a swung pickup on the "a" of 4 landed in
-# the wrong-feeling spot (Wells, twice)
-MUS_BASS = [("C3",1),("R",1),("G2",1),("R",1),
-            ("A2",1),("R",1),("G2",1),("R",1)]
+# WAKE - the once-per-boot menu greeting (replaced GROOVE, W-488). Not a
+# melody: a rising two-voice gesture that lands on an A4+E5 fifth and fades
+# out via the release ramp in claude.s. Reads as "something woke up" - the
+# sound is about Claude, not the phone system.
+SND_WAKE0 = [(hz, 3) for hz in (220.0, 261.6, 329.6, 392.0, 440.0,
+                                523.3, 587.3)] + [(659.3, 26)]
+SND_WAKE1 = [(0, 15), (329.6, 6), (440.0, 26)]
+
+# DIAL - the Connect theater: the real 1986 dial-up soundscape, cut to
+# silence the moment the modem says CONNECT (the Hayes ATM1 arc - the
+# silence IS carrier detect). Every element is the documented tone pair,
+# which is exactly what two DOC voices are for. The DTMF digits spell
+# C-L-A-U-D-E on a phone keypad.
+_DTMF = {"2": (697, 1336), "5": (770, 1336), "8": (852, 1336),
+         "3": (697, 1477)}
+
+def _dial_pair():
+    v0, v1 = [(350, 30)], [(440, 30)]           # dial tone
+    v0 += [(0, 4)]; v1 += [(0, 4)]
+    for d in "252833":                          # "CLAUDE"
+        lo, hi = _DTMF[d]
+        v0 += [(lo, 4), (0, 3)]
+        v1 += [(hi, 4), (0, 3)]
+    v0 += [(0, 8)]; v1 += [(0, 8)]              # switch thinks
+    v0 += [(440, 36), (0, 12)]                  # ringback, abbreviated
+    v1 += [(480, 36), (0, 12)]
+    v0 += [(2225, 20)]; v1 += [(0, 20)]         # answer tone (Bell 212A)
+    v0 += [(0, 6)]; v1 += [(0, 6)]              # the V.22bis silent beat
+    v0 += [(1200, 60)]; v1 += [(2400, 60)]      # both carriers = the buzz
+    return v0, v1
+
+# BELL - the reply bell: one ~1 kHz tone with the IIgs-style fading tail
+# (the GS system beep decays; the IIe's doesn't - that's why GS beeps
+# sound rounder). A soft octave under it for warmth.
+SND_BELL0 = [(1000, 10)]
+SND_BELL1 = [(500, 10)]
 
 def emit_music():
-    assert sum(b for _, b in MUS_MEL) == sum(b for _, b in MUS_BASS)
     wave = _wave()
     lines = ["wave_data:"]
     for i in range(0, 256, 16):
         lines.append("    .byte " + ",".join(f"${b:02X}" for b in wave[i:i + 16]))
-    blob = _voice(MUS_MEL, MUS_BPM)
-    lines.append("MUS_V0 = 0")
-    lines.append(f"MUS_V1 = {len(blob)}")
-    blob += _voice(MUS_BASS, MUS_BPM)
+    dial0, dial1 = _dial_pair()
+    assert sum(v for _, v in dial0) == sum(v for _, v in dial1)
+    assert sum(v for _, v in SND_WAKE0) == sum(v for _, v in SND_WAKE1)
+    blob = []
+    for name, segs in (("SND_WAKE0", SND_WAKE0), ("SND_WAKE1", SND_WAKE1),
+                       ("SND_DIAL0", dial0), ("SND_DIAL1", dial1),
+                       ("SND_BELL0", SND_BELL0), ("SND_BELL1", SND_BELL1)):
+        lines.append(f"{name} = {len(blob)}")
+        blob += _voice(segs)
     lines.append("music_data:")
     for i in range(0, len(blob), 16):
         lines.append("    .byte " + ",".join(f"${b:02X}" for b in blob[i:i + 16]))

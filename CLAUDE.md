@@ -13,8 +13,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A bridge that turns a real Apple II into a terminal for Claude Code. Three pieces that must stay in sync:
 
 - **`bridge/`** — Python, runs on a modern host. Reads a line from the Apple II, sends it to Claude, streams the reply back flattened to 7-bit ASCII and word-wrapped to 40/80 cols.
-- **`apple2gs/claude.s`** — the IIgs client: 65816, **Super Hi-Res 640 mode** (4 colors). Boot flow: hardware init → `scc_init` → boot menu (Connect / Hayes AT console / Instructions / Quit to BASIC) with the animated Clawd splash and chiptune (Ensoniq DOC) → Connect dials the modem and enters the session UI (scrolling transcript, static mascot, spinner, scrollback).
-- **`apple2/claude2.s`** — the 8-bit client: plain 6502 (no 65C02 ops), text mode. Runs on IIe (80-col with an aux card, 40 without), IIc, IIc Plus, and II/II+. Same menu and session shape, inverse-block mascot (with a blink), 1-bit speaker jingle. Serial = 6551 ACIA at the slot-2 addresses (SSC in slot 2 == the IIc/IIc+ built-in modem port).
+- **`apple2gs/claude.s`** — the IIgs client: 65816, **Super Hi-Res 640 mode** (4 colors). Boot flow: hardware init → `scc_init` → boot menu (Connect / Hayes AT console / Instructions / Quit to BASIC) with the animated Clawd splash → Connect dials the modem and enters the session UI (scrolling transcript, static mascot, spinner, scrollback).
+- **`apple2/claude2.s`** — the 8-bit client: plain 6502 (no 65C02 ops), text mode. Runs on IIe (80-col with an aux card, 40 without), IIc, IIc Plus, and II/II+. Same menu and session shape, inverse-block mascot (with a blink). Serial = 6551 ACIA at the slot-2 addresses (SSC in slot 2 == the IIc/IIc+ built-in modem port).
+
+**Sound design (W-488) is period-accurate and event-based** — no menu music (period comms tools were silent; a tune reads as toy-like). Three sounds only: a once-per-boot two-voice *wake* gesture on the menu; the Connect *dial theater* (the documented 1986 tone sequence — dial tone 350+440 Hz, DTMF spelling C-L-A-U-D-E, ringback, answer tone 2225 Hz, carrier buzz 1200+2400 Hz — hard-cut at CONNECT, which is the Hayes ATM1 speaker arc); and a *reply bell* rung only when a reply lands after a ≥15 s think (BEL semantics). GS = DOC two-voice streams in `gen_assets.py`; 8-bit = cycle-counted 1-bit versions (pulse-dial clicks instead of DTMF), which MUST poll `rb_poll` every half-cycle during the dial window.
 
 **One disk boots everything**: `build.sh` assembles both clients into `CLAUDE.dsk`, and the disk's HELLO reads the ROM ID bytes (Apple II Misc TN #7, plus the `$FE1F` carry probe to split IIgs from enhanced IIe) and BRUNs `COBJ` (GS) or `COBJ8` (everything else).
 
@@ -26,7 +28,7 @@ Build everything (from `apple2gs/`):
 
 ```bash
 ./build.sh                 # both clients -> inject into DOS 3.3 master -> CLAUDE.dsk (+ ~/Downloads copy for KEGS)
-python3 gen_assets.py      # regenerate assets.inc (palettes, font, mascot, splash frames, music) only
+python3 gen_assets.py      # regenerate assets.inc (palettes, font, mascot, splash frames, sounds) only
 python3 preview.py assets.inc out.png   # render the GS session screen to PNG WITHOUT an emulator
 ../tools/install-sd.sh     # put the built image on a FloppyEmu SD card safely
 ```
