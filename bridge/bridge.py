@@ -101,35 +101,29 @@ def print_banner(args, transport) -> None:
     title in the top rule, coral accents. Content is (plain, styled)
     pairs so padding is computed on visible length; every stock line is
     budgeted to keep the whole box inside 40 columns."""
-    proto = "app protocol" if args.app else "plain terminal"
     rows: list = []
 
     def row(plain: str = "", styled: str | None = None,
             center: bool = False) -> None:
         rows.append((plain, plain if styled is None else styled, center))
 
-    row(transport.describe())
-    cfg = f"{args.cols} cols · {args.backend} · {proto}"
-    row(cfg, f"{GRAY}{cfg}{OFF}")
     if args.telnet:
         ip = _lan_ip()
-        if ip:  # the line the modem needs, ready to copy
+        addr = f"{ip}:{args.port}" if ip else f"this machine, port {args.port}"
+        row("Your Apple II dials:", f"{GRAY}Your Apple II dials:{OFF}")
+        row(addr, f"{BOLD}{addr}{OFF}")
+        if ip:
             row()
-            row("store the bridge in the modem:",
-                f"{GRAY}store the bridge in the modem:{OFF}")
-            row(f"AT&Z0={ip}:{args.port}  AT&W")
+            row("one-time modem setup:",
+                f"{GRAY}one-time modem setup:{OFF}")
+            row(f"AT&Z0={addr}  AT&W")
+    else:
+        row(transport.describe())
     if args.pair_code:
-        code = "  ".join(args.pair_code)
         row()
         row("PAIRING CODE", f"{GRAY}PAIRING CODE{OFF}", center=True)
-        row(code, f"{BOLD}{CORAL}{code}{OFF}", center=True)
-        row()
-        note = "type it once on the Apple II"
-        row(note, f"{GRAY}{note}{OFF}")
-        if _paired_peers:
-            n = len(_paired_peers)
-            paired = f"{n} device{'s' if n != 1 else ''} already paired"
-            row(paired, f"{GRAY}{paired}{OFF}")
+        row(args.pair_code, f"{BOLD}{CORAL}{args.pair_code}{OFF}",
+            center=True)
 
     title = " Terminal for Claude Code "
     ver = " v0.2.0 "
