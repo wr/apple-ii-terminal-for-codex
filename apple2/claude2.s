@@ -1431,7 +1431,7 @@ str_ins_1:  .byte "Talk to Claude Code from this Apple II, over a WiFi modem.",0
 str_ins_2:  .byte "The bridge (on a modern computer):",0
 str_ins_3:  .byte " github.com/wr/apple-ii-terminal-for-claude-code",0
 str_ins_4:  .byte " python3 bridge.py --telnet --app --backend code",0
-str_ins_5:  .byte "Modem: store the bridge as entry 0 (AT&Z0=host:6400, AT&W).",0
+str_ins_5:  .byte "Modem: store entry 0 (AT&Z0=host:6400 then AT&W).",0
 str_ins_6:  .byte "Connect on the menu dials ATDS=0 and starts the session.",0
 str_esc:    .byte "Any key returns to the menu",0
 sp_glyphs:  .byte "*+:+"

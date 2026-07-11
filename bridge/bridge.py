@@ -103,9 +103,8 @@ def print_banner(args, transport) -> None:
     budgeted to keep the whole box inside 40 columns."""
     rows: list = []
 
-    def row(plain: str = "", styled: str | None = None,
-            center: bool = False) -> None:
-        rows.append((plain, plain if styled is None else styled, center))
+    def row(plain: str = "", styled: str | None = None) -> None:
+        rows.append((plain, plain if styled is None else styled))
 
     if args.telnet:
         ip = _lan_ip()
@@ -114,28 +113,29 @@ def print_banner(args, transport) -> None:
         row(addr, f"{BOLD}{addr}{OFF}")
         if ip:
             row()
-            row("one-time modem setup:",
-                f"{GRAY}one-time modem setup:{OFF}")
-            row(f"AT&Z0={addr}  AT&W")
+            row("one-time modem setup (2 commands):",
+                f"{GRAY}one-time modem setup (2 commands):{OFF}")
+            # one per line: &Z0= swallows the rest of its line, so
+            # suggesting them side by side would store garbage
+            row(f"AT&Z0={addr}")
+            row("AT&W")
     else:
         row(transport.describe())
     if args.pair_code:
         row()
-        row("PAIRING CODE", f"{GRAY}PAIRING CODE{OFF}", center=True)
-        row(args.pair_code, f"{BOLD}{CORAL}{args.pair_code}{OFF}",
-            center=True)
+        row("pairing code:", f"{GRAY}pairing code:{OFF}")
+        row(args.pair_code, f"{BOLD}{CORAL}{args.pair_code}{OFF}")
 
     title = " Terminal for Claude Code "
     ver = " v0.2.0 "
-    inner = max([len(p) for p, _, _ in rows] + [len(title) + 2]) + 4
+    inner = max([len(p) for p, _ in rows] + [len(title) + 2]) + 4
     print()
     print(f" {CORAL}╭─{BOLD}{title}{OFF}{CORAL}"
           + "─" * (inner - len(title) - 1) + f"╮{OFF}")
     print(f" {CORAL}│{OFF}" + " " * inner + f"{CORAL}│{OFF}")
-    for plain, styled, center in rows:
-        lpad = (inner - len(plain)) // 2 if center else 2
-        rpad = inner - len(plain) - lpad
-        print(f" {CORAL}│{OFF}{' ' * lpad}{styled}{' ' * rpad}{CORAL}│{OFF}")
+    for plain, styled in rows:
+        pad = " " * (inner - len(plain) - 2)
+        print(f" {CORAL}│{OFF}  {styled}{pad}{CORAL}│{OFF}")
     print(f" {CORAL}│{OFF}" + " " * inner + f"{CORAL}│{OFF}")
     print(f" {CORAL}╰" + "─" * (inner - len(ver) - 2)
           + f"{OFF}{GRAY}{ver}{OFF}{CORAL}──╯{OFF}")

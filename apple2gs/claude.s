@@ -2659,7 +2659,7 @@ str_ins_b2: .byte "  run:  python3 bridge.py --telnet --app --backend code",0
 str_ins_b3: .byte "  it listens for your modem on TCP port 6400.",0
 str_ins_m0: .byte "THE MODEM (any Hayes-compatible, e.g. WiModem232):",0
 str_ins_m1: .byte "  join it to your WiFi, then store the bridge address:",0
-str_ins_m2: .byte "    AT&Z0=BRIDGE.IP:6400   AT&W     (use the Modem console)",0
+str_ins_m2: .byte "    AT&Z0=BRIDGE.IP:6400  then  AT&W    (use the Modem console)",0
 str_ins_m3: .byte "  after that, Connect dials it automatically.",0
 str_ins_s0: .byte "SERIAL:",0
 str_ins_s1: .byte "  IIgs modem port, 9600 8N1 - this client sets that up itself.",0
