@@ -217,7 +217,7 @@ class CodeBackend(Backend):
     def header(self) -> tuple[str, ...] | None:
         ver = getattr(self, "_last_version", None) or claude_version(self._bin)
         model = getattr(self, "_last_model", None) or self._model
-        line1 = f"Claude Code][ v{ver}"
+        line1 = f"Claude Code v{ver}"
         line2 = pretty_model(model)
         eff = read_effort()
         if eff:

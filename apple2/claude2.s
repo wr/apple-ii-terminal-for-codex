@@ -545,10 +545,10 @@ menu_screen:
         tax
         lda     #2
         jsr     draw_mascot
-        ; title, centered
+        ; title + subtitle, centered
         lda     width
         sec
-        sbc     #37
+        sbc     #35
         lsr
         tax
         lda     #<str_title
@@ -556,6 +556,17 @@ menu_screen:
         lda     #>str_title
         sta     src+1
         lda     #9
+        jsr     draw_at
+        lda     width
+        sec
+        sbc     #21
+        lsr
+        tax
+        lda     #<str_sub
+        sta     src
+        lda     #>str_sub
+        sta     src+1
+        lda     #10
         jsr     draw_at
         STR     str_by, 2, 23
         jsr     menu_draw       ; menu visible before the jingle starts
@@ -1281,7 +1292,8 @@ page_instr:
 ; =====================================================================
 ; strings
 ; =====================================================================
-str_title:  .byte "Claude Code Terminal for the Apple ][",0
+str_title:  .byte "Welcome to Terminal for Claude Code",0
+str_sub:    .byte "for Apple II - v0.2.0",0
 str_by:     .byte "by Wells Workshop",0
 str_dial:   .byte "Dialing...",0
 str_dfail:  .byte "Dial failed - try the modem console",0
@@ -1293,7 +1305,7 @@ str_mdm_h:  .byte "Keys go straight to the modem. Esc = menu.",0
 str_ins_t:  .byte "Instructions",0
 str_ins_1:  .byte "Talk to Claude Code from this Apple II, over a WiFi modem.",0
 str_ins_2:  .byte "The bridge (on a modern computer):",0
-str_ins_3:  .byte " github.com/wr/claude-code-terminal-for-apple-ii",0
+str_ins_3:  .byte " github.com/wr/apple-ii-terminal-for-claude-code",0
 str_ins_4:  .byte " python3 bridge.py --telnet --app --backend code",0
 str_ins_5:  .byte "Modem: store the bridge as entry 0 (AT&Z0=host:6400, AT&W).",0
 str_ins_6:  .byte "Connect on the menu dials ATDS=0 and starts the session.",0

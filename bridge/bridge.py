@@ -220,7 +220,7 @@ def require_pairing(term: Terminal, args) -> bool:
             # so the user sees LOCKED without having to type first
             if args.app and not prompted:
                 term.write(b"\x0e")
-                term.write_line("Claude Code Terminal")
+                term.write_line("Terminal for Claude Code")
                 term.write_line("LOCKED - type the pairing code")
                 term.write_line("(it's on the bridge console)")
                 prompted = True

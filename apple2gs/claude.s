@@ -162,8 +162,8 @@ start:
         sta     BORDERCOL
         jsr     snd_init        ; DOC: load the waveform, oscillators halted
 
-        TEXT    str_welcome, 20, 16, 2
-        TEXT    str_ver, 37, 17, 3
+        TEXT    str_welcome, 22, 16, 2
+        TEXT    str_ver, 28, 17, 3
         TEXT    str_by, 31, 18, 3
 
 ; =====================================================================
@@ -176,8 +176,8 @@ menu_screen:
         .a8
         .i8
         jsr     clear_screen
-        TEXT    str_welcome, 20, 16, 2
-        TEXT    str_ver, 37, 17, 3
+        TEXT    str_welcome, 22, 16, 2
+        TEXT    str_ver, 28, 17, 3
         TEXT    str_by, 31, 18, 3
         jsr     music_start     ; the ditty plays once per menu visit
         stz     anim_ix
@@ -486,7 +486,7 @@ mp_nl2: sta     currow
 ; instructions page
 page_instr:
         jsr     clear_screen
-        TEXT    str_ins_t, 33, 1, 2
+        TEXT    str_ins_t, 28, 1, 2
         TEXT    str_ins_1, 4, 3, 3
         TEXT    str_ins_b0, 4, 5, 2
         TEXT    str_ins_b1, 4, 6, 3
@@ -2531,8 +2531,8 @@ mt_x:   rts
 ; strings
 ; =====================================================================
 str_title:  .byte "Claude Code",0         ; placeholder until the real header lands
-str_welcome:.byte "Claude Code Terminal for the Apple IIgs",0
-str_ver:    .byte "v0.2.0",0
+str_welcome:.byte "Welcome to Terminal for Claude Code",0
+str_ver:    .byte "for Apple IIgs - v0.2.0",0
 str_by:     .byte "by Wells Workshop",0
 str_dial:   .byte "Dialing...",0
 str_dfail:  .byte "Dial failed - try the modem console",0
@@ -2549,10 +2549,10 @@ str_mdm_1:  .byte "Type Hayes AT commands; Return sends them, Esc returns to the
 str_mdm_2:  .byte "Point entry 0 at your bridge and save:  AT&Z0=BRIDGE.IP:6400  then  AT&W",0
 str_mdm_3:  .byte "Connect on the menu dials  ATDS=0.  Test with  AT  (expect OK).",0
 str_mdm_4:  .byte "Esc returns to the menu",0
-str_ins_t:  .byte "CLAUDE CODE ][",0
+str_ins_t:  .byte "TERMINAL FOR CLAUDE CODE",0
 str_ins_1:  .byte "Talk to Claude Code from a real Apple II, over a WiFi modem.",0
 str_ins_b0: .byte "THE BRIDGE (runs on a modern computer):",0
-str_ins_b1: .byte "  download: github.com/wr/claude-code-terminal-for-apple-ii",0
+str_ins_b1: .byte "  download: github.com/wr/apple-ii-terminal-for-claude-code",0
 str_ins_b2: .byte "  run:  python3 bridge.py --telnet --app --backend code",0
 str_ins_b3: .byte "  it listens for your modem on TCP port 6400.",0
 str_ins_m0: .byte "THE MODEM (any Hayes-compatible, e.g. WiModem232):",0

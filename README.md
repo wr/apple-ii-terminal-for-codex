@@ -1,4 +1,4 @@
-# Claude Code terminal for the Apple ][
+# Apple II Terminal for Claude Code
 
 A dumb terminal for Claude Code, on an Apple ][.
 
@@ -32,7 +32,7 @@ install, no venv**), and the [`claude` CLI](https://claude.com/claude-code)
 logged in.
 
 1. Download **CLAUDE.dsk** from
-   [Releases](https://github.com/wr/claude-code-terminal-for-apple-ii/releases)
+   [Releases](https://github.com/wr/apple-ii-terminal-for-claude-code/releases)
    (or build it — see below).
 2. In KEGS: **F4** → Disk Configuration → set **s6d1** to `CLAUDE.dsk`, and
    Serial Port Configuration → **Slot 2** → **Incoming** (KEGS listens on
@@ -40,8 +40,8 @@ logged in.
 3. Run the bridge and reboot the emulator (Ctrl-⌘-Reset):
 
    ```sh
-   git clone https://github.com/wr/claude-code-terminal-for-apple-ii
-   cd claude-code-terminal-for-apple-ii/bridge
+   git clone https://github.com/wr/apple-ii-terminal-for-claude-code
+   cd apple-ii-terminal-for-claude-code/bridge
    python3 bridge.py --connect 127.0.0.1:6502 --app --backend code --cols 80
    ```
 
