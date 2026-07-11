@@ -62,17 +62,8 @@ _TTY = sys.stdout.isatty()
 DIM = "\x1b[2m" if _TTY else ""
 BOLD = "\x1b[1m" if _TTY else ""
 CORAL = "\x1b[38;5;209m" if _TTY else ""
+REV = "\x1b[7m" if _TTY else ""
 OFF = "\x1b[0m" if _TTY else ""
-
-# the session-screen mascot (mascot_art in apple2/claude2.s), one X = 2 cols
-CRAB = [
-    "  XXXXXXXXXXXX  ",
-    "  XX XXXXXX XX  ",
-    "XXXXXXXXXXXXXXXX",
-    "  XXXXXXXXXXXX  ",
-    "   X X    X X   ",
-]
-
 
 def log(msg: str) -> None:
     """Plumbing chatter on the host console (never sent to the Apple II)."""
@@ -94,25 +85,21 @@ def show_reply(lines: list, secs: float, mode: str) -> None:
 
 def print_banner(args, transport) -> None:
     proto = "native-client protocol" if args.app else "plain-terminal mode"
-    info = [
-        f"{BOLD}Terminal for Claude Code{OFF}  {DIM}bridge v0.2.0{OFF}",
-        f"{DIM}{transport.describe()}{OFF}",
-        f"{DIM}{args.cols} cols · {args.backend} backend · {proto}{OFF}",
-    ]
-    if args.pair_code:
-        info.append(f"PAIRING CODE: {BOLD}{args.pair_code}{OFF}  "
-                    f"{DIM}(type it on the Apple II once; --no-pair skips){OFF}")
-        if _paired_peers:
-            info.append(f"{DIM}{len(_paired_peers)} device(s) already paired "
-                        f"({_pairing_store()}){OFF}")
-    info.append(f"{DIM}Ctrl-C to stop{OFF}")
     print()
-    for i in range(max(len(CRAB), len(info))):
-        art = ""
-        if i < len(CRAB):
-            art = "".join("██" if c == "X" else "  " for c in CRAB[i])
-        text = info[i] if i < len(info) else ""
-        print(f"  {CORAL}{art:<32}{OFF}  {text}".rstrip())
+    print(f"  {BOLD}Terminal for Claude Code{OFF}  {DIM}bridge v0.2.0{OFF}")
+    print(f"  {DIM}{transport.describe()} · {args.cols} cols · "
+          f"{args.backend} backend · {proto}{OFF}")
+    if args.pair_code:
+        # the one thing a first-time user must not miss
+        code = " ".join(args.pair_code)
+        print()
+        print(f"  {REV}{CORAL}{BOLD}  PAIRING CODE   {code}  {OFF}")
+        note = "type it on the Apple II once · --no-pair skips"
+        if _paired_peers:
+            note += f" · {len(_paired_peers)} device(s) already paired"
+        print(f"  {DIM}{note}{OFF}")
+    print()
+    print(f"  {DIM}Ctrl-C to stop{OFF}")
     print()
 
 
