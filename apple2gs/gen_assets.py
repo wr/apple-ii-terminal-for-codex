@@ -621,7 +621,7 @@ def _dial_pair():
     v1 += [(480, 36), (0, 12)]
     v0 += [(2225, 20)]; v1 += [(0, 20)]         # answer tone (Bell 212A)
     v0 += [(0, 6)]; v1 += [(0, 6)]              # the V.22bis silent beat
-    v0 += [(1200, 60)]; v1 += [(2400, 60)]      # both carriers = the buzz
+    v0 += [(1200, 54)]; v1 += [(2400, 54)]      # both carriers = the buzz
     return v0, v1
 
 # BELL - the reply bell: one ~1 kHz tone with the IIgs-style fading tail

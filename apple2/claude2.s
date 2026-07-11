@@ -832,7 +832,7 @@ act_connect:
         ; so stop classifying - play out the storyboard, still draining rx
         ; (the 6551 buffers ONE byte).
 @hold:  lda     dsnd_ix
-        cmp     #45
+        cmp     #44
         bcs     @sess
         jsr     dsnd_beat
         ldy     #2
@@ -862,7 +862,7 @@ act_connect:
 ; (speaker off at carrier). Failures cut it dead instead.
 dsnd_beat:
         ldx     dsnd_ix
-        cpx     #45
+        cpx     #44
         bcs     @x
         inc     dsnd_ix
         lda     dsnd_tab,x
@@ -907,7 +907,7 @@ dsnd_beat:
         ldy     #120
         jmp     dtone
 
-; the 45-beat storyboard: 0 rest, 1 dial tone, 2 pulse click, 3 ring,
+; the 44-beat storyboard: 0 rest, 1 dial tone, 2 pulse click, 3 ring,
 ; 4 answer tone, 5 carrier buzz
 dsnd_tab:
         .byte   1,1,1,1,1, 0            ; off-hook, dial tone
@@ -916,7 +916,7 @@ dsnd_tab:
         .byte   2,2, 0,0,0              ; ... 2
         .byte   3,3,3,3, 0,0,0          ; one ring
         .byte   4,4,4, 0                ; the answer whistle
-        .byte   5,5,5,5,5,5,5,5,5,5,5,5 ; carriers up - buzz until CONNECT
+        .byte   5,5,5,5,5,5,5,5,5,5,5   ; carriers up - the buzz
 
 ; dtone - A = half-period (5-cycle units), Y = full cycles. The serial
 ; ring is polled every half-cycle: the 6551 buffers ONE byte and the
