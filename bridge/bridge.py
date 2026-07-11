@@ -125,7 +125,7 @@ def print_banner(args, transport) -> None:
         row("pairing code:", f"{GRAY}pairing code:{OFF}")
         row(args.pair_code, f"{BOLD}{CORAL}{args.pair_code}{OFF}")
 
-    title = " Terminal for Claude Code "
+    title = " Apple II Terminal for Claude Code "
     ver = " v0.2.0 "
     inner = max([len(p) + 4 for p, _ in rows] + [38])  # box is 40 wide
     print()
