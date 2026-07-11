@@ -671,8 +671,10 @@ eyes_put:
 ; stretches the half-period loop on a 4MHz IIc+. Rests are notes with
 ; bit7 set on the delay byte: same timing, no speaker toggles.
 jingle:
-        ldx     #0
-@note:  lda     jtab_d,x
+        lda     #0
+        sta     tmp3            ; note index lives in memory: jhalf
+@note:  ldx     tmp3            ; clobbers X (GROOVE's stuck-note bug -
+        lda     jtab_d,x        ; it looped forever on a rest, silently)
         beq     @done           ; 0 = end of tune
         sta     tmp             ; delay + rest flag
         and     #$7F
@@ -686,7 +688,7 @@ jingle:
         jsr     rb_poll
         lda     KBD             ; a key skips the rest of the tune
         bmi     @done
-        inx
+        inc     tmp3
         bne     @note
 @done:  rts
 
