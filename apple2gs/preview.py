@@ -72,6 +72,28 @@ def draw_str(px, col, row, s, color, glyphs):
         draw_char(px, x0 + i * 8, y0, glyph_for(glyphs, ch), color)
 
 
+# The coral reply bullet the client stamps before Claude's first line.
+_BULLET = (
+    "........",
+    "..###...",
+    ".#####..",
+    ".#####..",
+    ".#####..",
+    "..###...",
+    "........",
+    "........",
+)
+
+
+def draw_bullet(px, col, row, color):
+    x0 = col * 8
+    y0 = row * 8
+    for r, line in enumerate(_BULLET):
+        for c, ch in enumerate(line):
+            if ch == "#":
+                px[(x0 + c, y0 + r)] = color
+
+
 def main():
     assets = sys.argv[1] if len(sys.argv) > 1 else "assets.inc"
     out = sys.argv[2] if len(sys.argv) > 2 else "preview.png"
@@ -93,11 +115,16 @@ def main():
     draw_str(px, 12, 1, "Claude Code v2.1.204", CORAL, glyphs)
     draw_str(px, 12, 2, "Opus 4.8 (1M) - high effort", GRAY, glyphs)
     draw_str(px, 12, 3, "Apple II <-> Claude Code", CORAL, glyphs)
-    # transcript: submitted messages white, Claude replies gray
-    draw_str(px, 0, 6, "> Testing", WHITE, glyphs)
-    draw_str(px, 0, 8, "Working. What do you need?", GRAY, glyphs)
-    draw_str(px, 0, 10, "> what time is it", WHITE, glyphs)
-    draw_str(px, 0, 12, "The quick brown fox jumps over 13 lazy dogs.", GRAY, glyphs)
+    # transcript: your messages white, Claude replies gray with a coral bullet
+    draw_str(px, 0, 6, "> what does render.py do?", WHITE, glyphs)
+    draw_bullet(px, 0, 8, CORAL)
+    draw_str(px, 2, 8, "It flattens Claude's Markdown to 7-bit", GRAY, glyphs)
+    draw_str(px, 2, 9, "ASCII and word-wraps it to 40 or 80", GRAY, glyphs)
+    draw_str(px, 2, 10, "columns for the Apple II to draw.", GRAY, glyphs)
+    draw_str(px, 0, 12, "> add a test for the code-span case", WHITE, glyphs)
+    draw_bullet(px, 0, 14, CORAL)
+    draw_str(px, 2, 14, "Added test_render_markdown.py and ran", GRAY, glyphs)
+    draw_str(px, 2, 15, "it - 4 passed, all green.", GRAY, glyphs)
 
     # Build the logical 640x200 framebuffer, 1 output px per SHR px.
     img = Image.new("RGB", (W, H), palette[0])
