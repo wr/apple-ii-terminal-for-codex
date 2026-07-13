@@ -3,8 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Source of truth
-- GitHub: github.com/wr/apple-ii-terminal-for-claude-code (public launch in progress: W-481)
-- Linear project: Apple II Terminal for Claude Code (id: c0d9d65f-0a87-4f10-81ab-bd1ad619fd16, team Personal)
+- GitHub: github.com/wr/apple-ii-terminal-for-claude-code
 - Branch prefix: wells/
 - PR mode: none (commit to main, push directly)
 
@@ -16,7 +15,7 @@ A bridge that turns a real Apple II into a terminal for Claude Code. Three piece
 - **`apple2gs/claude.s`** — the IIgs client: 65816, **Super Hi-Res 640 mode** (4 colors). Boot flow: hardware init → `scc_init` → boot menu (Connect / Hayes AT console / Instructions / Quit to BASIC) with the animated Clawd splash → Connect dials the modem and enters the session UI (scrolling transcript, static mascot, spinner, scrollback).
 - **`apple2/claude2.s`** — the 8-bit client: plain 6502 (no 65C02 ops), text mode. Runs on IIe (80-col with an aux card, 40 without), IIc, IIc Plus, and II/II+. Same menu and session shape, inverse-block mascot (with a blink). Serial = 6551 ACIA at the slot-2 addresses (SSC in slot 2 == the IIc/IIc+ built-in modem port).
 
-**Sound design (W-488) is period-accurate and event-based** — no menu music (period comms tools were silent; a tune reads as toy-like). Three sounds only: a once-per-boot two-voice *wake* gesture on the menu; the Connect *dial theater* (the documented 1986 tone sequence — dial tone 350+440 Hz, DTMF spelling C-L-A-U-D-E, ringback, answer tone 2225 Hz, carrier buzz 1200+2400 Hz); and a *reply bell* rung only when a reply lands after a ≥15 s think (BEL semantics). A CONNECT verdict is latched and the theater plays to its storyboard end (W-517: a fast modem answering mid-theater made the old hard cut read as a glitch) — the silence *after* it is the Hayes ATM1 speaker arc; dial failures still cut it dead. GS = DOC two-voice streams in `gen_assets.py`; 8-bit = cycle-counted 1-bit versions (pulse-dial clicks instead of DTMF), which MUST poll `rb_poll` every half-cycle during the dial window.
+**Sound design is period-accurate and event-based** — no menu music (period comms tools were silent; a tune reads as toy-like). Three sounds only: a once-per-boot two-voice *wake* gesture on the menu; the Connect *dial theater* (the documented 1986 tone sequence — dial tone 350+440 Hz, DTMF spelling C-L-A-U-D-E, ringback, answer tone 2225 Hz, carrier buzz 1200+2400 Hz); and a *reply bell* rung only when a reply lands after a ≥15 s think (BEL semantics). A CONNECT verdict is latched and the theater plays to its storyboard end (a fast modem answering mid-theater made an old hard cut read as a glitch) — the silence *after* it is the Hayes ATM1 speaker arc; dial failures still cut it dead. GS = DOC two-voice streams in `gen_assets.py`; 8-bit = cycle-counted 1-bit versions (pulse-dial clicks instead of DTMF), which MUST poll `rb_poll` every half-cycle during the dial window.
 
 **One disk boots everything**: `build.sh` assembles both clients into `CLAUDE.dsk`, and the disk's HELLO reads the ROM ID bytes (Apple II Misc TN #7, plus the `$FE1F` carry probe to split IIgs from enhanced IIe) and BRUNs `COBJ` (GS) or `COBJ8` (everything else).
 
@@ -45,13 +44,13 @@ python3 bridge.py --connect 127.0.0.1:6502 --app --backend code --cols 80
 - `--app` enables the native-client protocol (bridge stays silent, frames replies with `EOT` = `0x04`). Required for both native clients.
 - `--backend code` runs the real `claude` CLI on the host; `--backend chat` (default) is Messages-API Q&A.
 - Serial hardware instead of KEGS: `--serial /dev/tty.usbserial-XXXX --baud 9600`.
-- A listening bridge (`--telnet`) locks itself behind a 4-digit pairing code; paired peers persist in `~/.config/claude-ii-terminal/paired.json`. `--no-pair` disables.
+- A listening bridge (`--telnet`) locks itself behind a 6-character pairing code (attempt backoff, expiry, revocation); paired peers persist in `~/.config/claude-ii-terminal/paired.json`. `--no-pair` disables.
 
 ## The edit → see-it loop
 
 - **GS client, fast path: `preview.py`.** It reproduces `claude.s`'s exact SHR pixel math at KEGS's real display geometry (640×200 stretched to 4:3 → pixels are ~0.42 wide : 1 tall). What the PNG shows is what KEGS shows. It writes a full screen and a zoomed `*_mascot.png`.
 - **GS client, full loop**: `./build.sh`, then **Ctrl-⌘-Reset** in KEGS (boots `~/Downloads/CLAUDE.dsk` via `~/config.kegs`). No bridge restart needed.
-- **8-bit client**: MAME, fully scripted. `mame apple2ee -sl2 ssc -sl2:ssc:rs232 null_modem -bitbanger socket.127.0.0.1:6502 -flop1 CLAUDE.dsk` wires an emulated Super Serial Card to the bridge's socket; `-autoboot_script` (Lua) types keys and takes snapshots, and Lua read/write taps on memory are how the hard bugs here were actually found. The IIc is `mame apple2c` with `-modem null_modem`. ROMs aren't distributable; the romset was assembled from Asimov parts + a keyboard ROM synthesized from MAME's own matrix source (see W-482 in Linear for the recipe).
+- **8-bit client**: MAME, fully scripted. `mame apple2ee -sl2 ssc -sl2:ssc:rs232 null_modem -bitbanger socket.127.0.0.1:6502 -flop1 CLAUDE.dsk` wires an emulated Super Serial Card to the bridge's socket; `-autoboot_script` (Lua) types keys and takes snapshots, and Lua read/write taps on memory are how the hard bugs here were actually found. The IIc is `mame apple2c` with `-modem null_modem`. ROMs aren't distributable; the romset was assembled from Asimov parts + a keyboard ROM synthesized from MAME's own matrix source.
 - **Bridge change** (`bridge/*.py`): restart the `python3 bridge.py` process.
 - **Real hardware** (Wells: IIgs + IIc, WiModem 232 Pro, FloppyEmu): `tools/install-sd.sh` — in-place overwrite of the card's existing image (can't fragment). The tool is [wr/floppyemu-sd](https://github.com/wr/floppyemu-sd), vendored in `tools/`.
 
@@ -98,7 +97,7 @@ GS client (`claude.s`):
 - **A real 8530 latches Rx overrun and can wedge the status poll** — `rb_poll` bounds its drain (4 bytes) and ends every pass with WR0 = $30 (Error Reset). Never write a raw `lda SCC_STAT` loop. Boot breadcrumbs remain in `start`: border flashes white→red→yellow→black through init; a stuck color names the hung stage.
 - **The real Sound GLU raises a busy bit around DOC cycles and drops accesses made while it's set** — all DOC access goes through `glu_wait`+`doc_wr`. KEGS doesn't model it. Also: DOC register `$E1` (osc enable) = oscillator count × 2.
 - **65816 mode tracking**: after `jsr`ing a routine that changes M/X width, put `.a8`/`.a16` after the call or operands mis-assemble into a `BRK`. `mvn` also corrupts KEGS state — `scroll_up` uses a plain `[dp],y` copy.
-- Connect dials `ATDS=0` without probing (a connected-probe can't work — the modem echoes it); the bridge swallows `ATD…` lines, and the dial window classifies modem verdicts (CONNECT/ERROR/BUSY/NO x) while echoing responses on row 22. Both clients skip the dial entirely when DCD reads carrier AND `dcd_trust` is set (W-515: the pin has read "no carrier" at least once, proving it's live, not strapped) — KEGS, MAME, and DCD-less modems never arm the skip and dial every time.
+- Connect dials `ATDS=0` without probing (a connected-probe can't work — the modem echoes it); the bridge swallows `ATD…` lines, and the dial window classifies modem verdicts (CONNECT/ERROR/BUSY/NO x) while echoing responses on row 22. Both clients skip the dial entirely when DCD reads carrier AND `dcd_trust` is set (the pin has read "no carrier" at least once, proving it's live, not strapped) — KEGS, MAME, and DCD-less modems never arm the skip and dial every time.
 
 8-bit client (`claude2.s`):
 - **Don't use IRQ-driven serial.** The enhanced IIe/IIc ROM interrupt dispatcher doesn't follow the II+'s "A saved at $45" convention; a handler assuming it corrupts the ROM's banking restore (80STORE drops, even columns garble, eventual crash). The client is 100% polled.
@@ -110,4 +109,4 @@ GS client (`claude.s`):
 Environment:
 - **KEGS reads `~/config.kegs`** (home dir, not the app folder — macOS translocation). `s6d1` points at `~/Downloads/CLAUDE.dsk`, which `build.sh` refreshes; a leading `#` on the path means "ejected".
 - **Slash commands**: `bridge.py:handle_command` handles `/new`/`/clear`, `/mode`, `/model` (remembered bridge-side and re-passed as `--model` — a passthrough `/model` wouldn't stick across the per-turn process boundary), `/help`, `/quit`/`/exit` (both also matched client-side before transmit). In code mode every other `/command` passes through to `claude -p`, which executes most of them natively (`/cost`, `/context`, `/compact`, skills); TUI-only ones answer "isn't available in this environment". In chat mode unknown commands are rejected (the Messages API has no commands).
-- **Ctrl-C (W-516)**: at an idle prompt = local quit-to-menu. During a think, the client sends a bare `0x03`; `run_app_session` pumps `backend.stream()` through a thread, polls the transport in stream lulls (`Terminal.poll_ctrl_c`), and on Ctrl-C calls `backend.cancel()` (terminates the `claude -p` process), then sends the partial reply + "Interrupted by user" + EOT. During a printing reply the client just mutes (`muteflag`) and drains to EOT locally.
+- **Ctrl-C**: at an idle prompt = local quit-to-menu. During a think, the client sends a bare `0x03`; `run_app_session` pumps `backend.stream()` through a thread, polls the transport in stream lulls (`Terminal.poll_ctrl_c`), and on Ctrl-C calls `backend.cancel()` (terminates the `claude -p` process), then sends the partial reply + "Interrupted by user" + EOT. During a printing reply the client just mutes (`muteflag`) and drains to EOT locally.

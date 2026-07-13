@@ -46,6 +46,15 @@ $DOS33 -y CLAUDE.dsk SAVE A HH HELLO
 $DOS33 -a 0x4000 CLAUDE.dsk BSAVE COBJ COBJ
 $DOS33 -a 0x2000 CLAUDE.dsk BSAVE COBJ8 COBJ8
 $DOS33 CLAUDE.dsk CATALOG
-# convenience deploy for KEGS (~/config.kegs boots this path); harmless if absent
-cp CLAUDE.dsk "$HOME/Downloads/CLAUDE.dsk" 2>/dev/null || true
+# Opt-in convenience deploy for KEGS (~/config.kegs boots ~/Downloads/CLAUDE.dsk).
+# Off by default so a plain build never writes outside the repo; enable with
+# COPY_TO_DOWNLOADS=1 ./build.sh. Harmless if ~/Downloads doesn't exist.
+if [ -n "$COPY_TO_DOWNLOADS" ]; then
+  if cp CLAUDE.dsk "$HOME/Downloads/CLAUDE.dsk" 2>/dev/null; then
+    echo "=== copied CLAUDE.dsk to ~/Downloads (COPY_TO_DOWNLOADS) ==="
+  else
+    echo "=== COPY_TO_DOWNLOADS set but ~/Downloads copy failed (dir missing?) ===" >&2
+  fi
+fi
 echo "=== built CLAUDE.dsk (master-based, boots KEGS + FloppyEmu + real drives) ==="
+echo "    (set COPY_TO_DOWNLOADS=1 to also copy it to ~/Downloads for KEGS)"
