@@ -67,3 +67,19 @@ def test_legacy_three_line_header_contract_is_absent():
         text = source.read_text()
         assert "3 CR-terminated lines" not in text
         assert "rows 1-3" not in text
+
+
+def test_8bit_interrupt_marker_draws_an_inverse_block_and_text():
+    source = Path("apple2/codex2.s").read_text()
+    spinner = source.split("spinner:", 1)[1].split("recv_reply:", 1)[0]
+    receiver = source.split("recv_reply:", 1)[1].split("do_header:", 1)[0]
+    assert "draw_interrupt:" in source
+    renderer = source.split("draw_interrupt:", 1)[1].split("do_header:", 1)[0]
+
+    assert "CMD_INTERRUPT = $06" in source
+    assert "cmp     #CMD_INTERRUPT" in spinner
+    assert "cmp     #CMD_INTERRUPT" in receiver
+    assert "jsr     draw_interrupt" in receiver
+    assert "lda     #1\n        sta     invflag" in renderer
+    assert "lda     #' '\n        jsr     cout" in renderer
+    assert "inverse-space block" in source

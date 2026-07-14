@@ -13,8 +13,8 @@
 ; the GS client. TX polls TDRE with a timeout (W65C51N never sets it).
 ;
 ; Protocol: same app-mode stream as the IIgs client. 0x01 <n> color
-; (3 -> inverse, else normal), 0x02 bullet, 0x0E header frame (4 CR
-; lines), 0x03 session over, 0x04 EOT.
+; (3 -> inverse, else normal), 0x02 bullet, 0x06 interrupted-turn style,
+; 0x0E header frame (4 CR lines), 0x03 session over, 0x04 EOT.
 ; =====================================================================
 
 ; ---- zero page (safe under Applesoft+DOS: see AGENTS.md landmines)
@@ -61,6 +61,7 @@ CMD_COLOR  = $01
 CMD_BULLET = $02
 CMD_QUIT   = $03
 CMD_TOKEN  = $05        ; app mode: bridge issues a device token; we store it
+CMD_INTERRUPT = $06     ; app mode: inverse block + inverse interruption text
 CMD_HEADER = $0E
 HEADER_LINES = 4
 HEADER_ROWS = 6
@@ -1402,6 +1403,8 @@ spinner:
         beq     @stash
         cmp     #CMD_TOKEN      ; token frame can be the first byte back
         beq     @stash          ; (issued right after a good code) - keep it
+        cmp     #CMD_INTERRUPT
+        beq     @stash
         cmp     #CMD_QUIT
         beq     @q
         cmp     #$20
@@ -1557,6 +1560,8 @@ recv_reply:
         beq     @hdr
         cmp     #CMD_TOKEN
         beq     @tok
+        cmp     #CMD_INTERRUPT
+        beq     @interrupt
         cmp     #CMD_QUIT
         beq     @rq
         cmp     #$0A
@@ -1575,6 +1580,11 @@ recv_reply:
         lda     #' '
         jsr     cout
         jmp     @next
+@interrupt:
+        lda     muteflag
+        bne     @next
+        jsr     draw_interrupt
+        jmp     @next
 @hdr:   jsr     do_header
         jmp     @next
 @tok:   jsr     do_token        ; capture + persist a freshly issued token
@@ -1588,6 +1598,21 @@ recv_reply:
         jsr     cout
         lda     #0
         sta     havefirst
+        rts
+
+; draw_interrupt - closest 8-bit equivalent to Codex CLI's red marker:
+; an inverse-space block, a normal gap, then inverse message text.
+draw_interrupt:
+        lda     #1
+        sta     invflag
+        lda     #' '
+        jsr     cout
+        lda     #0
+        sta     invflag
+        lda     #' '
+        jsr     cout
+        lda     #1
+        sta     invflag
         rts
 
 ; =====================================================================
