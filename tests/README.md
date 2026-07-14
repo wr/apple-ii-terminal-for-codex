@@ -6,13 +6,12 @@ Two layers: a pure-Python bridge test, and MAME runs that drive the real
 ## Bridge (no emulator)
 
 ```sh
-python3 tests/test_interrupt.py
+python3 -m pip install -r requirements-test.txt
+python3 -m pytest -q bridge tests/test_interrupt.py
 ```
 
-Fakes the transport and a slow backend, runs the real `run_app_session`, and
-asserts the W-516 behavior: Ctrl-C (0x03) mid-generation cancels the backend
-and delivers the partial reply + "Interrupted by user" + EOT; `/exit` closes
-the session like `/quit`.
+This runs the renderer, pairing, cancellation, terminal-protocol, error-hygiene,
+and native-client interrupt tests without an emulator or Claude account.
 
 ## 8-bit client in MAME
 

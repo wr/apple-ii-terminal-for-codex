@@ -29,9 +29,16 @@ Press Connect and it plays the 1986 dial-up soundscape: dial tone, touch-tones t
 
    ```sh
    git clone https://github.com/wr/apple-ii-terminal-for-claude-code
-   cd apple-ii-terminal-for-claude-code/bridge
-   python3 ./bridge.py --telnet --app --backend code --workdir ~/your-project
+   cd apple-ii-terminal-for-claude-code
+   python3 ./bridge/bridge.py --telnet --app --backend code --workdir ~/your-project
    ```
+
+   | Setup | Python install |
+   |---|---|
+   | TCP/emulator + `--backend code` | None; install and log in to the external `claude` CLI |
+   | Serial + `--backend code` | `python3 -m pip install -r bridge/requirements-serial.txt` |
+   | Any transport + `--backend chat` | `python3 -m pip install -r bridge/requirements-chat.txt` and set `ANTHROPIC_API_KEY` |
+   | Every optional bridge feature | `python3 -m pip install -r bridge/requirements.txt` |
 
    It listens on TCP 6400. When an unpaired source IP first needs access, the bridge creates a 6-character code and prints it only on its own console. A native client exchanges the code for a private token, stores that token on its boot disk, and presents it on later connects. A valid-token reconnect does not print a code. The generated code is discarded after a successful pairing, but an intercepted unused code can still be replayed from the same source IP. `--workdir` is the project Claude Code works in — in code mode it reads and writes files and runs commands in that directory, so point it at the repo you actually want on the wire.
 
@@ -97,7 +104,7 @@ python3 bridge.py --telnet --app --backend code --workdir ~/project
 | Flag | Use |
 |---|---|
 | `--backend code` | The real agentic Claude Code. Edits files and runs commands on the host, in `--workdir`. That's the point, but know it |
-| `--backend chat` | Plain Q&A via the Messages API. Needs `ANTHROPIC_API_KEY` and the one `pip install anthropic` (default backend) |
+| `--backend chat` | Plain Q&A via the Messages API. Needs `ANTHROPIC_API_KEY` and `bridge/requirements-chat.txt` (default backend) |
 | `--workdir DIR` | Code mode: the project Claude works in |
 | `--model ID` | Override the Claude model |
 | `--effort LEVEL` | Chat thinking effort: low/medium/high/xhigh/max (default low) |
@@ -132,10 +139,11 @@ Slash commands from the II: the bridge handles `/help`, `/new` or `/clear`, `/mo
 
 ## Building from source
 
-You don't need this to run it; the release disk is prebuilt. To hack on it you need [cc65](https://cc65.github.io/) (`brew install cc65`), [dos33fsprogs](https://github.com/deater/dos33fsprogs) (built anywhere, point `DOS33FSPROGS` at it), and Python 3 with Pillow.
+You don't need this to run it; the release disk is prebuilt. To hack on it you need [cc65](https://cc65.github.io/) (`brew install cc65`), [dos33fsprogs](https://github.com/deater/dos33fsprogs) (built anywhere, point `DOS33FSPROGS` at it), and Python 3 with `requirements-build.txt` installed.
 
 ```sh
-cd apple-ii-terminal-for-claude-code/apple2gs && ./build.sh   # both clients into one CLAUDE.dsk
+python3 -m pip install -r requirements-build.txt
+cd apple2gs && ./build.sh                                    # both clients into one CLAUDE.dsk
 python3 preview.py assets.inc out.png                         # render the SHR screen, no emulator
 ```
 

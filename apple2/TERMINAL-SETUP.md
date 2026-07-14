@@ -61,7 +61,9 @@ Set the Apple II terminal program and the bridge to match. A good starting point
 Bridge side:
 
 ```sh
-python3 bridge.py --serial /dev/tty.usbserial-XXXX --baud 9600 --cols 80
+python3 -m pip install -r bridge/requirements-serial.txt
+python3 bridge/bridge.py --serial /dev/tty.usbserial-XXXX --baud 9600 \
+  --cols 80 --backend code
 ```
 
 Bump to `--baud 19200` once it's stable (the IIc's 6551 tops out around there;

@@ -1,5 +1,3 @@
-# Python 3.10+ (the bridge uses 3.10 union syntax, e.g. `str | None`).
-# Only the chat backend needs anthropic; the code backend shells out to the
-# `claude` CLI and needs nothing here. pyserial is only for --serial.
-anthropic>=0.77.0    # chat backend; 0.77.0 introduced output_config (effort)
-pyserial>=3.5        # serial transport
+# All optional bridge features. TCP + --backend code needs no Python package.
+-r requirements-chat.txt
+-r requirements-serial.txt
