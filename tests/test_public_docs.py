@@ -32,6 +32,11 @@ def test_ci_runs_the_current_asset_test_module():
     assert "test_patch_assets.py" not in workflow
 
 
+def test_ci_installs_the_preview_test_dependency():
+    requirements = Path("requirements-test.txt").read_text().splitlines()
+    assert "Pillow==12.3.0" in requirements
+
+
 def test_v010_release_docs_match_current_product_state():
     changelog = Path("CHANGELOG.md").read_text()
     license_text = Path("LICENSE").read_text()
