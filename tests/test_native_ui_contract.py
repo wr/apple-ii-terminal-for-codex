@@ -37,6 +37,7 @@ def test_gs_buffers_the_complete_header_before_drawing_it():
     assert "HDRBUF" in source
     assert header.index("jsr     hdr_capture") < header.index("TEXT    hdr_border")
     assert "getbyte" not in reader
+    assert "inc     hdr_pos\n        lda     hdr_pos\n        tay" in reader
 
 
 def test_escape_and_ctrl_c_share_one_inflight_interrupt_path():

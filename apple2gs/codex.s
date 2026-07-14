@@ -1870,6 +1870,7 @@ hrl_lp:
         cmp     hdr_len
         beq     hrl_pad
         inc     hdr_pos
+        lda     hdr_pos
         tay
         lda     (tmp2),y
         jsr     putchar
