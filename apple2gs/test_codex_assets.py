@@ -1,6 +1,13 @@
 from pathlib import Path
 
-from gen_assets import COLORS, COLORS_SPLASH, LOGO_FRAMES, LOGO_ON
+from gen_assets import (
+    COLORS,
+    COLORS_SPLASH,
+    LOGO_FRAMES,
+    LOGO_ON,
+    SND_WAKE0,
+    SND_WAKE1,
+)
 
 
 HERE = Path(__file__).parent
@@ -29,3 +36,24 @@ def test_asset_build_has_no_patch_coral_or_pillow_dependency():
     assert "coral" not in source.lower()
     assert "PIL" not in source
     assert "Pillow" not in (HERE.parent / "requirements-build.txt").read_text()
+
+
+def test_codex_wake_is_four_notes_a_rest_and_a_fifth():
+    assert SND_WAKE0 == [
+        (329.6, 4),
+        (392.0, 4),
+        (493.9, 4),
+        (659.3, 4),
+        (0, 3),
+        (659.3, 28),
+    ]
+    assert SND_WAKE1 == [(0, 19), (440.0, 28)]
+    assert sum(duration for _, duration in SND_WAKE0) == sum(
+        duration for _, duration in SND_WAKE1
+    )
+
+
+def test_8bit_wake_uses_the_codex_prompt_cadence():
+    source = (HERE.parent / "apple2" / "codex2.s").read_text()
+    assert "jtab_d: .byte 76,64,51,38,$FE,57,38,57,38,57,0" in source
+    assert "jtab_w: .byte 60,71,89,120,18,105,157,105,157,254" in source

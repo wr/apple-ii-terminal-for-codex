@@ -225,13 +225,12 @@ def _wave():
         w = [(w[i - 1] + 2 * w[i] + w[(i + 1) % 256]) // 4 for i in range(256)]
     return [max(1, v) for v in w]
 
-# WAKE - the once-per-boot menu greeting (replaced GROOVE, W-488). Not a
-# melody: a rising two-voice gesture that lands on an A4+E5 fifth and fades
-# out via the release ramp in codex.s. Reads as "something woke up" - the
-# sound marks the terminal waking, not the phone system.
-SND_WAKE0 = [(hz, 3) for hz in (220.0, 261.6, 329.6, 392.0, 440.0,
-                                523.3, 587.3)] + [(659.3, 26)]
-SND_WAKE1 = [(0, 15), (329.6, 6), (440.0, 26)]
+# WAKE - the once-per-boot Codex greeting. Four prompt-like rising notes,
+# one silent beat, then an A4+E5 fifth; quiet and brief enough to remain an
+# event sound rather than menu music.
+SND_WAKE0 = [(329.6, 4), (392.0, 4), (493.9, 4), (659.3, 4),
+             (0, 3), (659.3, 28)]
+SND_WAKE1 = [(0, 19), (440.0, 28)]
 
 # DIAL - the Connect theater: the real 1986 dial-up soundscape. The
 # stream plays through even when the modem answers fast (W-517: a buzz

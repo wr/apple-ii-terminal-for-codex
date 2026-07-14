@@ -709,14 +709,11 @@ jhalf:  bit     tmp             ; rest? (bit7)
         bne     @rep
         rts
 
-; The wake: seven quick rising steps (~794Hz up to ~1587Hz - the delay
-; byte's low 7 bits are the half-period in 5-cycle units at 1MHz, so
-; the beeper's floor is ~790Hz), then a C6/G6 shimmer that stands in
-; for the GS client's landing chord. waves = full cycles per note.
-jtab_d: .byte 126, 106, 95, 84, 75, 67, 63
-        .byte  95,  63, 95, 63, 63, 0
-jtab_w: .byte  36,  42, 47, 54, 60, 67, 71
-        .byte  63,  95, 63, 95, 238
+; Codex wake: four prompt-like rising steps, a short rest ($FE), then an
+; alternating A/E landing that approximates the GS fifth on one speaker.
+; waves = full cycles per note; delay*waves keeps the phrase timing even.
+jtab_d: .byte 76,64,51,38,$FE,57,38,57,38,57,0
+jtab_w: .byte 60,71,89,120,18,105,157,105,157,254
 
 menu_draw:
         ldx     #0
