@@ -14,7 +14,7 @@ strptr  = $E4          ; word: string pointer (bank 0)
 glyphptr= $E6          ; word: font glyph pointer (bank 0)
 curcol  = $E8          ; word: transcript column 0-79
 currow  = $EA          ; word: transcript row
-txtcolor= $EC          ; byte: color 0-3
+txtcolor= $EC          ; byte: hardware color 0-3, or semantic COLOR_RED
 coloff  = $ED          ; byte: txtcolor*16
 tmp     = $EE          ; word scratch
 srcp    = $08          ; word: splash draw source pointer ($08-$09 free)
@@ -60,6 +60,7 @@ CMD_COLOR  = $01       ; in-band: next byte sets txtcolor (1 gray/2 light gray/3
 CMD_BULLET = $02       ; in-band: draw the white reply bullet here
 CMD_QUIT   = $03       ; in-band: bridge says session over -> back to the menu
 CMD_TOKEN  = $05       ; in-band: bridge issues a device token; retained for this boot
+CMD_INTERRUPT = $06    ; in-band: style the following interruption line
 CMD_HEADER = $0E       ; in-band: four CR-terminated header values follow
 HEADER_LINES = 4
 HEADER_ROWS = 6
@@ -79,6 +80,8 @@ BUF_BANK   = $02
 BUF_LINES  = 128
 BUF_STRIDE = 160       ; 80 cells * 2 bytes
 CELL_BULLET = $01      ; stored-char value meaning "the reply bullet glyph"
+CELL_INTERRUPT = $02   ; stored-char value meaning "the interrupt square glyph"
+COLOR_RED = $06        ; semantic red; hardware color 2 on interrupt-palette rows
 SCROLL_STEP = 3        ; lines moved per arrow press
 
 ; set curcol/currow/txtcolor/strptr and draw a string
@@ -147,6 +150,13 @@ start:
         inx
         cpx     #32
         bne     @pc
+        ldx     #$0000          ; palette 1: same neutrals, color 2 becomes red
+@ipc:   lda     shr_palette_interrupt,x
+        sta     f:$E19E20,x
+        inx
+        inx
+        cpx     #32
+        bne     @ipc
         jsr     clear_screen
 
         ; ---- splash: the >_ mark wakes while the modem initializes ----
@@ -1479,6 +1489,8 @@ sp_nk:
         beq     sp_exj
         cmp     #CMD_TOKEN      ; token frame can be the first byte back (issued
         beq     sp_exj          ; right after a good code) - keep it for recv_reply
+        cmp     #CMD_INTERRUPT  ; styled interruption marker is reply content
+        beq     sp_exj
         cmp     #CMD_QUIT
         beq     sp_q            ; session over: latch it, keep draining to EOT
         cmp     #$20
@@ -1732,6 +1744,8 @@ rr_nocp:
         beq     rr_header
         cmp     #CMD_TOKEN      ; 0x05 -> retain a freshly issued token in RAM
         beq     rr_token
+        cmp     #CMD_INTERRUPT  ; 0x06 -> red/inverse interruption treatment
+        beq     rr_interrupt
         cmp     #CMD_QUIT       ; 0x03 -> session over after this reply
         beq     rr_quit
         cmp     #$0A            ; skip LF
@@ -1752,6 +1766,11 @@ rr_bullet:
         lda     muteflag
         bne     rr_next
         jsr     draw_bullet
+        bra     rr_next
+rr_interrupt:
+        lda     muteflag
+        bne     rr_next
+        jsr     draw_interrupt
         bra     rr_next
 rr_header:
         jsr     do_header
@@ -2047,6 +2066,19 @@ scu_cp:
         iny
         cpy     #((BOT_ROW-TOP_ROW)*1280)
         bne     scu_lp
+        ; SCBs follow their text rows so palette-1 interrupt lines stay red.
+        lda     #((TOP_ROW+1)*8 + $9D00)
+        sta     srcptr
+        lda     #(TOP_ROW*8 + $9D00)
+        sta     destptr
+        ldy     #0
+scu_scb:
+        lda     [srcptr],y
+        sta     [destptr],y
+        iny
+        iny
+        cpy     #((BOT_ROW-TOP_ROW)*8)
+        bne     scu_scb
         sep     #$20
         .a8
         sep     #$10
@@ -2061,6 +2093,19 @@ scu_cp:
 clear_rowA:
         .a8
         .i8
+        pha
+        asl     a
+        asl     a
+        asl     a
+        tax
+        lda     #$80            ; restore palette 0 on all eight scanlines
+        ldy     #8
+cra_scb:
+        sta     f:$E19D00,x
+        inx
+        dey
+        bne     cra_scb
+        pla
         ; destptr = SHR_BASE + row*1280  ((row*5)<<8)
         rep     #$20
         .a16
@@ -2183,6 +2228,7 @@ put_common:                     ; entry with glyphptr preset, still .a16
         sep     #$20
         .a8
         lda     txtcolor
+        and     #$03            ; semantic red ($06) renders as hardware color 2
         asl     a
         asl     a
         asl     a
@@ -2245,6 +2291,50 @@ draw_bullet:
         jsr     rec_cell
         lda     #1              ; restore gray for the reply body
         sta     txtcolor
+        rts
+
+; draw_interrupt - draw and record the filled square, then leave semantic red
+; selected for the bridge's following "Interrupted by user" text.
+draw_interrupt:
+        .a8
+        .i8
+        jsr     set_interrupt_row
+        lda     #COLOR_RED
+        sta     txtcolor
+        rep     #$20
+        .a16
+        lda     #interrupt_data
+        sta     glyphptr
+        jsr     put_common
+        .a8
+        lda     #CELL_INTERRUPT
+        jsr     rec_cell
+        lda     #' '
+        jsr     cout
+        lda     #COLOR_RED
+        sta     txtcolor
+        rts
+
+; set_interrupt_row - select SHR palette 1 for the current text row's 8 SCBs.
+set_interrupt_row:
+        .a8
+        .i8
+        rep     #$20
+        .a16
+        lda     currow
+        sep     #$20
+        .a8
+        asl     a
+        asl     a
+        asl     a
+        tax
+        lda     #$81
+        ldy     #8
+sir_lp:
+        sta     f:$E19D00,x
+        inx
+        dey
+        bne     sir_lp
         rts
 
 ; =====================================================================
@@ -2478,13 +2568,28 @@ crt_slend:
 draw_cell:
         .a8
         .i8
+        pha
+        lda     txtcolor
+        cmp     #COLOR_RED
+        bne     dc_normal_palette
+        jsr     set_interrupt_row
+dc_normal_palette:
+        pla
         cmp     #CELL_BULLET
         beq     dc_bullet
+        cmp     #CELL_INTERRUPT
+        beq     dc_interrupt
         jmp     putchar
 dc_bullet:
         rep     #$20
         .a16
         lda     #bullet_data
+        sta     glyphptr
+        jmp     put_common
+dc_interrupt:
+        rep     #$20
+        .a16
+        lda     #interrupt_data
         sta     glyphptr
         jmp     put_common
 

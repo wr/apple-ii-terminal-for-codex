@@ -14,6 +14,8 @@ COLORS = {                       # value -> $0RGB (4 bits/channel)
     2: (0xC, 0xC, 0xC),          # light gray  (animated status accent)
     3: (0xF, 0xF, 0xF),          # white       (user's submitted messages)
 }
+COLORS_INTERRUPT = dict(COLORS)
+COLORS_INTERRUPT[2] = (0xD, 0x3, 0x3)  # muted red, isolated to interrupt rows
 
 MASCOT_HSCALE = 2
 MASCOT_VSCALE = 1
@@ -52,6 +54,10 @@ def emit_palette():
     # 16 entries; entry n uses color (n & 3)
     for n in range(16):
         r, g, b = COLORS[n & 3]
+        lines.append(f"    .word ${(r<<8)|(g<<4)|b:04X}")
+    lines.append("shr_palette_interrupt:")
+    for n in range(16):
+        r, g, b = COLORS_INTERRUPT[n & 3]
         lines.append(f"    .word ${(r<<8)|(g<<4)|b:04X}")
     lines.append("shr_palette_splash:   ; neutral boot/menu variant")
     for n in range(16):
@@ -177,6 +183,12 @@ def emit_bullet():
     return "bullet_data:\n    .byte " + ",".join(f"${b:02X}" for b in rows)
 
 
+def emit_interrupt():
+    # filled square used by the Codex CLI-style interrupted-turn marker
+    rows = [0x00, 0x7E, 0x7E, 0x7E, 0x7E, 0x7E, 0x7E, 0x00]
+    return "interrupt_data:\n    .byte " + ",".join(f"${b:02X}" for b in rows)
+
+
 FONT_OVERRIDES = {
     ord(">"): [0xC0, 0x30, 0x0C, 0x03, 0x0C, 0x30, 0xC0, 0x00],
     ord("_"): [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7E, 0x00],
@@ -294,6 +306,7 @@ if __name__ == "__main__":
         f.write(emit_mascot() + "\n\n")
         f.write(emit_splash() + "\n\n")
         f.write(emit_bullet() + "\n\n")
+        f.write(emit_interrupt() + "\n\n")
         f.write(emit_music() + "\n\n")
         f.write(emit_font() + "\n")
     print("wrote assets.inc")
