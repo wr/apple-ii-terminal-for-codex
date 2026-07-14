@@ -147,7 +147,7 @@ start:
         bne     @pc
         jsr     clear_screen
 
-        ; ---- splash: Clawd-does-his-laptop-act while the modem dials ----
+        ; ---- splash: Patch wakes and types while the modem dials ----
         ; splash palette: entry 1 = the sprite's shadow coral (restored at
         ; teardown, where entry 1 goes back to the UI gray)
         rep     #$30
@@ -1260,7 +1260,7 @@ spin_glyphs:
         .byte   "*+:+"          ; pulse cycle for the thinking spinner
 
 ; =====================================================================
-; splash_frame - A (a8) = frame index. Draws one frame of the clawd.gif
+; splash_frame - A (a8) = frame index. Draws one Patch animation frame
 ;   port, tripled: each stored 2-bit pixel becomes 3 screen bytes (12px)
 ;   wide and 6 scanlines tall, via the expand4_n solid-byte tables.
 ;   splash_data/splash_off/splash_seq all come from assets.inc (generated

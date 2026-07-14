@@ -1,1 +1,1 @@
-Pillow==12.3.0
+# Asset generation uses only the Python standard library.

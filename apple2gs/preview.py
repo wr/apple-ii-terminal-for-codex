@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Render a PNG that mimics the SHR client screen, so we can eyeball font
-legibility without an emulator. Reproduces claude.s's putchar math.
+legibility without an emulator. Reproduces codex.s's putchar math.
 
 Usage: python3 preview.py [assets.inc] [out.png]
 Parses shr_palette + font_data (8 bytes/glyph, bit7=leftmost) from assets.inc
@@ -72,7 +72,7 @@ def draw_str(px, col, row, s, color, glyphs):
         draw_char(px, x0 + i * 8, y0, glyph_for(glyphs, ch), color)
 
 
-# The coral reply bullet the client stamps before Claude's first line.
+# The coral reply bullet the client stamps before Codex's first line.
 _BULLET = (
     "........",
     "..###...",
@@ -112,13 +112,13 @@ def main():
                 px[(8 + c, 8 + r)] = v
 
     # header (rows 1-3, col 15 to clear the mascot region)
-    draw_str(px, 12, 1, "Claude Code v2.1.204", CORAL, glyphs)
-    draw_str(px, 12, 2, "Opus 4.8 (1M) - high effort", GRAY, glyphs)
-    draw_str(px, 12, 3, "Apple II <-> Claude Code", CORAL, glyphs)
-    # transcript: your messages white, Claude replies gray with a coral bullet
+    draw_str(px, 12, 1, "Codex CLI v0.144.1", CORAL, glyphs)
+    draw_str(px, 12, 2, "default model", GRAY, glyphs)
+    draw_str(px, 12, 3, "Apple II <-> Codex", CORAL, glyphs)
+    # transcript: your messages white, Codex replies gray with a coral bullet
     draw_str(px, 0, 6, "> what does render.py do?", WHITE, glyphs)
     draw_bullet(px, 0, 8, CORAL)
-    draw_str(px, 2, 8, "It flattens Claude's Markdown to 7-bit", GRAY, glyphs)
+    draw_str(px, 2, 8, "It flattens Codex Markdown to 7-bit", GRAY, glyphs)
     draw_str(px, 2, 9, "ASCII and word-wraps it to 40 or 80", GRAY, glyphs)
     draw_str(px, 2, 10, "columns for the Apple II to draw.", GRAY, glyphs)
     draw_str(px, 0, 12, "> add a test for the code-span case", WHITE, glyphs)

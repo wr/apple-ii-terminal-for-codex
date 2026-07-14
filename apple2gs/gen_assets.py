@@ -1,44 +1,27 @@
 #!/usr/bin/env python3
-"""Generate 640-mode SHR assets for the Claude GS client.
+"""Generate 640-mode SHR assets for the Codex GS client.
 
 640 mode: 4 pixels/byte, 2 bits each. Because the hardware picks the palette
 entry from BOTH the pixel value and its column-within-byte, we replicate the 4
 colors across all 16 palette slots so a 2-bit value means the same color
 everywhere. 4 usable colors:  0 black, 1 gray, 2 coral, 3 yellow.
 """
+
+from patch_art import PATCH_FRAMES, PATCH_HOLD, PATCH_SEQUENCE, PATCH_SESSION
+
 COL_BLACK, COL_GRAY, COL_CORAL, COL_YELLOW = 0, 1, 2, 3
 COLORS = {                       # value -> $0RGB (4 bits/channel)
     0: (0x0, 0x0, 0x0),          # black background
-    1: (0x9, 0x9, 0x9),          # mid gray    (Claude replies + input box)
+    1: (0x9, 0x9, 0x9),          # mid gray    (Codex replies + input box)
     2: (0xD, 0x7, 0x5),          # coral       (mascot / titles / spinner)
     3: (0xF, 0xF, 0xF),          # white       (user's submitted messages)
 }
 
-# ---- mascot art: chunky pixel critter, coral body + black square eyes + legs.
-# One char = one source pixel; scaled up H/V in emit_mascot (640-mode pixels are
-# narrow, so we stretch more horizontally to look square).
-def mascot_frames():
-    """Session mascot: the ORIGINAL hand-drawn critter, one static frame
-    (no blinking, no hopping - per Wells)."""
-    return [[
-        "..CCCCCCCCCCCC..",
-        "..CCCCCCCCCCCC..",
-        "..CCKCCCCCCKCC..",
-        "..CCKCCCCCCKCC..",
-        "CCCCCCCCCCCCCCCC",
-        "CCCCCCCCCCCCCCCC",
-        "..CCCCCCCCCCCC..",
-        "..CCCCCCCCCCCC..",
-        "...C.C....C.C...",
-        "...C.C....C.C...",
-    ]]
-
-
-MASCOT_HSCALE = 4      # source px -> N screen px horizontally
-MASCOT_VSCALE = 2      # source px -> N scanlines vertically (640 px are narrow)
+MASCOT_HSCALE = 2
+MASCOT_VSCALE = 1
 # . black, C coral body, K black (eyes), G gray (hardware), W white
 MLEG = {".": 0, "C": 2, "K": 0, "G": 1, "W": 3, "S": 1}
-MASCOT_FRAMES = mascot_frames()
+MASCOT_FRAMES = [PATCH_FRAMES[PATCH_SESSION]]
 
 # boot-phase palette (splash + menu): entry 1 = the sprite's shadow coral
 # (doubles as dim menu text), entry 3 = platinum (computer, keyboard, bright
@@ -70,371 +53,27 @@ def emit_palette():
     return "\n".join(lines)
 
 
-# ---- splash: an EXACT port of clawd.gif (Clawd whips out a laptop, types,
-# puts it away). All 47 frames are extracted at build time from clawd.gif at
-# its native 5.75px pitch and played with the gif's own frame timing. The
-# client draws them 4x (each source pixel = 16px wide, 8 scanlines).
-# Colors: 0 black (bg + eyes), 1 shadow coral, 2 coral, 3 laptop gray.
-# Requires Pillow (pip install pillow) at build time.
-SPLASH_SRC = "clawd.gif"
-
-
-# pixel-perfect poses from the official spritesheet (native 5px pitch),
-# used to overwrite any gif frame that matches one - the gif is a lossy
-# half-res render, the sheet is ground truth. Chars: C coral, S shadow,
-# K eye, G laptop, . empty.
-_CHV = {".": 0, "C": 2, "S": 1, "K": 0, "G": 3, "W": 3}
-_SHEET_ART_SRC = [
-    [  # stand, 24x16
-        "....CCCCCCCCCCCCCCCC....",
-        "....CCCCCCCCCCCCCCCC....",
-        "....CCKKCCCCCCCCKKCC....",
-        "....CCKKCCCCCCCCKKCC....",
-        "CCCCCCCCCCCCCCCCCCCCCCCC",
-        "CCCCCCCCCCCCCCCCCCCCCCCC",
-        "CCCCCCCCCCCCCCCCCCCCCCCC",
-        "CCCCCCCCCCCCCCCCCCCCCCCC",
-        "....CCCCCCCCCCCCCCCC....",
-        "....CCCCCCCCCCCCCCCC....",
-        "....CCCCCCCCCCCCCCCC....",
-        "....CCCCCCCCCCCCCCCC....",
-        "....CC..CC....CC..CC....",
-        "....CC..CC....CC..CC....",
-        "....CC..CC....CC..CC....",
-        "....CC..CC....CC..CC....",
-    ],
-    [  # typing A
-        "...........CCCCCCCCCCCCSSSS.",
-        "...........CCCCCCCCCCCCSSSS.",
-        "...........CCCCCCCCCCCCSSSS.",
-        "...........KKCCCCCCKKCCSSSS.",
-        "...........KKCCCCCCKKCCSSSS.",
-        "........CCCCCCCCCCCCCCCSSSS.",
-        "........CCCCCCCCCCCCCCCSSSS.",
-        "........CCCCCCCCCCCCCCCSSSS.",
-        "G.......CCCCCCCCCCCCCCCSSSS.",
-        "GG.........CCCCCCCCCCCCSSSS.",
-        ".GG....SSSSCCCCCCCCCCCCSSSS.",
-        "..GG...SSSSCC..CC....CC..SS.",
-        "...GG..SSSSCCC.CCC...CCC.SSS",
-        "....GGGGGG..CC..CC....CC..SS",
-    ],
-    [  # typing B
-        "...........CCCCCCCCCCCCSSSS.",
-        "...........CCCCCCCCCCCCSSSS.",
-        "...........CCCCCCCCCCCCSSSS.",
-        "...........KKCCCCCCKKCCSSSS.",
-        "...........KKCCCCCCKKCCSSSS.",
-        ".......SSSSCCCCCCCCCCCCSSSS.",
-        ".......SSSSCCCCCCCCCCCCSSSS.",
-        ".......SCCCCCCCCCCCCCCCSSSS.",
-        "G......SCCCCCCCCCCCCCCCSSSS.",
-        "GG.....SCCCCCCCCCCCCCCCSSSS.",
-        ".GG.....CCCCCCCCCCCCCCCSSSS.",
-        "..GG....CCCCC..CC....CC..SS.",
-        "...GG......CCC.CCC...CCC.SSS",
-        "....GGGGGG..CC..CC....CC..SS",
-    ],
-    [  # typing C
-        "...........CCCCCCCCCCCCSSSS.",
-        "...........CCCCCCCCCCCCSSSS.",
-        "...........CCCCCCCCCCCCSSSS.",
-        "...........KKCCCCCCKKCCSSSS.",
-        "...........KKCCCCCCKKCCSSSS.",
-        "...........CCCCCCCCCCCCSSSS.",
-        "........CCCCCCCCCCCCCCCSSSS.",
-        "G......SCCCCCCCCCCCCCCCSSSS.",
-        "GG.....SCCCCCCCCCCCCCCCSSSS.",
-        ".GG....SCCCCCCCCCCCCCCCSSSS.",
-        "..GG...SSSSCCCCCCCCCCCCSSSS.",
-        "..GG...SSSSCC..CC....CC..SS.",
-        "...GG..SSSSCCC.CCC...CCC.SSS",
-        "....GGGGGG..CC..CC....CC..SS",
-    ],
-]
-# substitution uses ONLY the typing poses: matching the stand art against
-# the intro/outro frames collapsed their subtle acting into one rigid pose
-SHEET_ARTS = [[[_CHV[c] for c in row] for row in art] for art in _SHEET_ART_SRC[1:]]
-
-
-def _sheet_substitute(m):
-    """If a quantized gif frame matches a spritesheet pose (>=80% cell
-    agreement, size within 1 cell), replace it with the sheet's exact
-    pixels, anchored at the frame's bottom-right (feet stay planted)."""
-    # anchor on the CORAL body only: gray (keyboard) cells wander from
-    # frame to frame and made the substituted art - and his head - bob
-    pts = [(x, y) for y, row in enumerate(m) for x, v in enumerate(row) if v in (1, 2)]
-    if not pts:
-        return m
-    bx1 = max(p[0] for p in pts); by1 = max(p[1] for p in pts)
-    bx0 = min(p[0] for p in pts); by0 = min(p[1] for p in pts)
-    bw, bh = bx1 - bx0 + 1, by1 - by0 + 1
-    best, best_score, best_off = None, 0.0, (0, 0)
-    for art in SHEET_ARTS:
-        apts = [(x, y) for y, row in enumerate(art) for x, v in enumerate(row)
-                if v in (1, 2)]
-        ax1 = max(p[0] for p in apts); ay1 = max(p[1] for p in apts)
-        ax0 = min(p[0] for p in apts); ay0 = min(p[1] for p in apts)
-        if abs((ax1 - ax0) - (bx1 - bx0)) > 2 or abs((ay1 - ay0) - (by1 - by0)) > 2:
-            continue
-        ox, oy = bx1 - ax1, by1 - ay1       # align the BODIES bottom-right
-        total = match = 0
-        for y in range(len(art)):
-            for x in range(len(art[0])):
-                gy, gx = oy + y, ox + x
-                g = m[gy][gx] if 0 <= gy < len(m) and 0 <= gx < len(m[0]) else 0
-                a = art[y][x]
-                if a in (1, 2) or g in (1, 2):
-                    total += 1
-                    if a == g:
-                        match += 1
-        score = match / total if total else 0.0
-        if score > best_score:              # BEST art wins, not the first
-            best, best_score, best_off = art, score, (ox, oy)
-    if best and best_score >= 0.72:
-        ox, oy = best_off
-        out = [[0] * len(m[0]) for _ in m]
-        for y in range(len(best)):
-            for x in range(len(best[0])):
-                gy, gx = oy + y, ox + x
-                if best[y][x] and 0 <= gy < len(m) and 0 <= gx < len(m[0]):
-                    out[gy][gx] = best[y][x]
-        return out, True
-    return m, False
+PATCH_COLORS = {".": 0, "K": 0, "S": 1, "C": 2, "G": 3}
 
 
 def splash_extract():
-    from PIL import Image
-    from collections import Counter
-    # HALF the gif's 5.75px pixel pitch: the spritesheet proves the true art
-    # grid is twice as fine as the gif renders it (sheet body = 24x16, gif
-    # body = 12x8). Sampling at sheet resolution keeps the laptop line - a
-    # single fine cell wide - from flickering in and out between frames.
-    P = 2.875
-
-    def classify(p):
-        r, g, b = p[:3]
-        lum = (r + g + b) / 3
-        if r - b > 30 and r > 120:           # warm -> coral family
-            return 2 if lum >= 118 else 1    # gif body lum ~128, shadow ~109
-        if lum < 110:                        # bg, slab edge (~95), eyes
-            return 0
-        if abs(r - g) < 22 and abs(g - b) < 22:
-            return 3                         # NEUTRAL gray only = the prop
-        return 0                             # anti-aliased fringe: drop it
-
-    gif = Image.open(SPLASH_SRC)
-    frames_px, durs = [], []
-    for i in range(gif.n_frames):
-        gif.seek(i)
-        durs.append(gif.info.get("duration", 70))
-        frames_px.append(gif.convert("RGB"))
-
-    # fixed crop shared by every frame: the union of all body pixels, plus
-    # laptop pixels no lower than his feet (that excludes the slab + logo)
-    body_y, all_x, all_y = [], [], []
-    for im in frames_px:
-        px = im.load()
-        for y in range(im.height):
-            for x in range(im.width):
-                if classify(px[x, y]) in (1, 2):
-                    all_x.append(x); all_y.append(y); body_y.append(y)
-    feet = max(body_y)
-    for im in frames_px:
-        px = im.load()
-        for y in range(0, feet + 2):    # laptop pixels; +2 excludes the slab
-            for x in range(im.width):   # edge highlight under his feet
-                if classify(px[x, y]) == 3:
-                    all_x.append(x); all_y.append(y)
-    x0, y0 = min(all_x), min(all_y)
-    x1, y1 = max(all_x), min(feet + 2, max(all_y))
-    w = round((x1 - x0) / P) + 1
-    h = round((y1 - y0) / P) + 1
-    w += (-w) % 4                       # pack640 needs a multiple of 4
-    mats = []
-    for im in frames_px:
-        px = im.load()
-        m = []
-        for cy in range(h):
-            row = []
-            for cx in range(w):
-                votes = Counter()
-                for fy in (0.35, 0.65):
-                    for fx in (0.35, 0.65):
-                        x, y = int(x0 + (cx + fx) * P), int(y0 + (cy + fy) * P)
-                        if 0 <= x < im.width and y0 <= y <= y1:
-                            votes[classify(px[x, y])] += 1
-                row.append(votes.most_common(1)[0][0] if votes else 0)
-            m.append(list(row))
-        mats.append(m)
-
-    def _degray(m):
-        """A gray cell with no gray neighbour is an anti-aliasing artifact
-        (eye rims, hand edges) - the real prop is always a connected line."""
-        for y in range(h):
-            for x in range(w):
-                if m[y][x] != 3:
-                    continue
-                lonely = True
-                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                    nx, ny = x + dx, y + dy
-                    if 0 <= ny < h and 0 <= nx < w and m[ny][nx] == 3:
-                        lonely = False
-                if lonely:
-                    m[y][x] = 0
-        return m
-
-    subbed = [_sheet_substitute(_degray(m)) for m in mats]
-    mats = [s[0] for s in subbed]
-    typing = [s[1] for s in subbed]
-
-    # scoot Clawd one block down and left (art direction; the keyboard pass
-    # below re-stamps from the shifted cells, and the prop stays put)
-    for m in mats:
-        for y in range(h - 1, -1, -1):
-            for x in range(w):
-                sy, sx = y - 1, x + 1
-                m[y][x] = m[sy][sx] if (0 <= sy < h and 0 <= sx < w) else 0
-
-    # keyboard: erase every gray cell (this also wipes the anti-aliasing
-    # artifacts that were landing near his eyes and claws) and stamp a
-    # rigid keyboard sprite - per Wells' sketch - centered where they were.
-    KB = ["GGGGGG.",
-          "GGGGGGG"]
-    KB_TILT = ["....GGG",
-               ".GGGGGG",
-               "GGGG..."]
-    frame_cells = []
-    for m in mats:
-        cells = [(x, y) for y in range(h) for x in range(w) if m[y][x] == 3]
-        for x, y in cells:
-            m[y][x] = 0
-        frame_cells.append(cells)
-    down_x = [round(sum(c[0] for c in cells) / len(cells))
-              for cells in frame_cells
-              if len(cells) >= 3 and sum(c[1] for c in cells) / len(cells) >= h - 6]
-    # -2 (not the centering -3): parked one column nearer Clawd, per Wells
-    rest_x = round(sum(down_x) / len(down_x)) - 2 if down_x else 4
-    for m, cells in zip(mats, frame_cells):
-        if len(cells) < 3:
-            continue
-        cy = sum(c[1] for c in cells) / len(cells)
-        if cy >= h - 6:
-            kx, ky = rest_x, h - 2          # parked flush on the table
-            sprite = KB
-        else:
-            kx = round(sum(c[0] for c in cells) / len(cells)) - 3
-            ky = round(cy) - 1
-            sprite = KB_TILT                # a little swing in the carry
-        for row_i, krow in enumerate(sprite):
-            for col_i, ch in enumerate(krow):
-                yy, xx = ky + row_i, kx + col_i
-                if ch == "G" and 0 <= yy < h and 0 <= xx < w and m[yy][xx] == 0:
-                    m[yy][xx] = 3
-
-    # ---- the set piece (per sketch v2): square-cornered CRT, screen strip
-    # facing Clawd, vent slot between tube and case, base lip at the front
-    # only. Platinum body; the strip flashes between the corals during typing.
-    PROP = [
-        ".....GGGGG..",
-        "GGGGGGGGGG..",
-        "GGGGGGGGGGO.",
-        "GGGGGGGGGGO.",
-        "GGGGGGGGGGO.",
-        "GGGGGGGGGGO.",
-        "GGGGGGGGGGO.",
-        "GGGGGGGGGGO.",
-        "GGGGGGGGGGO.",
-        "GGGGGGGGGG..",
-        "GGGGGGGGGG..",
-        ".GKKKKKKG...",
-        "GGGGGGGGGG..",
-        "GGGGGGGGGG..",
-        "GGGGGGGGGG..",
-        "GGGGGGGGGG..",
-        "GGGGGGGGGGG.",
+    names = list(PATCH_FRAMES)
+    frames = [
+        tuple(tuple(PATCH_COLORS[cell] for cell in row) for row in PATCH_FRAMES[name])
+        for name in names
     ]
-    pw = len(PROP[0])
-    new_w = pw + 3 + w
-    new_w += (-new_w) % 4
-    ext = new_w - w
-    out_mats = []
-    for fi, m in enumerate(mats):
-        kb_down = typing[fi]
-        nm = [[0] * new_w for _ in range(h)]
-        for y in range(h):
-            for x in range(w):
-                nm[y][ext + x] = m[y][x]
-        oy = h - len(PROP)                  # bottom-aligned with the floor
-        strip = 2 if (not kb_down or fi & 1) else 1   # flash only while typing
-        for py, prow in enumerate(PROP):
-            for px_, chv in enumerate(prow):
-                if chv == ".":
-                    continue
-                v = strip if chv == "O" else _CHV[chv]
-                if 0 <= oy + py < h:
-                    nm[oy + py][3 + px_] = v
-        out_mats.append(nm)
-    mats = out_mats
-    w = new_w
-
-    # art direction: erase the one-pixel "shoulder nub" - a coral cell that
-    # sticks out exactly one column left of the head side, one row above a
-    # wide arm row. It's quantization residue from the gif's rounded
-    # shoulder, most visible on the stand pose the inter-loop pause holds.
-    def _left_edge(m, y):
-        for x in range(pw + 3, w):
-            if m[y][x] == 2:
-                return x
-        return None
-    for m in mats:
-        edges = [_left_edge(m, y) for y in range(h)]
-        for y in range(2, h - 1):
-            a, b, c = edges[y - 2], edges[y - 1], edges[y]
-            if (a is not None and b is not None and c is not None
-                    and c <= b - 3 and b == a - 1):
-                m[y - 1][b] = 0
-
-    mats = [tuple(tuple(r) for r in m) for m in mats]
-
-    uniq, idx = [], []
-    for m in mats:
-        if m in uniq:
-            idx.append(uniq.index(m))
-        else:
-            uniq.append(m); idx.append(len(uniq) - 1)
-    seq = []
-    for i, j in enumerate(idx):
-        vbl = max(2, round(durs[i] * 60 / 1000))
-        if seq and seq[-1][0] == j and seq[-1][1] + vbl < 250:
-            seq[-1] = (j, seq[-1][1] + vbl)
-        else:
-            seq.append((j, vbl))
-
-    # dedicated frame for the menu's inter-loop pause: the opening stand
-    # pose, but with the arms one pixel taller on the bottom (Wells).
-    # Appended last and never referenced by the storyboard; claude.s draws
-    # it as SPLASH_HOLD.
-    hold = [list(r) for r in uniq[seq[0][0]]]
-    edges = [next((x for x in range(20, w) if hold[y][x] == 2), None)
-             for y in range(h)]
-    arm_left = min(e for e in edges if e is not None)
-    arm_bottom = max(y for y in range(h) if edges[y] == arm_left)
-    if arm_bottom + 1 < h:
-        for x in range(20, w):
-            if hold[arm_bottom][x] == 2 and hold[arm_bottom + 1][x] == 0:
-                hold[arm_bottom + 1][x] = 2
-    uniq.append(tuple(tuple(r) for r in hold))
-    return uniq, seq, w, h
+    index = {name: position for position, name in enumerate(names)}
+    sequence = [(index[name], duration) for name, duration in PATCH_SEQUENCE]
+    return frames, sequence, 28, 16, index[PATCH_HOLD]
 
 
 def emit_splash():
-    uniq, seq, w, h = splash_extract()
+    uniq, seq, w, h, hold = splash_extract()
     fsize = w * h // 4
     lines = [f"SPLASH_BYTES = {w // 4}",
              f"SPLASH_H = {h}",
              f"SPLASH_FSIZE = {fsize}   ; bytes per frame (stored 1x, drawn 4x)",
-             f"SPLASH_HOLD = {len(uniq) - 1}   ; inter-loop pause frame (not in seq)",
+             f"SPLASH_HOLD = {hold}   ; inter-loop pause frame",
              f"; {len(uniq)} unique frames of {w}x{h} cells, "
              f"{len(seq)} storyboard entries",
              "splash_data:"]
@@ -446,7 +85,7 @@ def emit_splash():
     lines.append("splash_off:")
     for i in range(len(uniq)):
         lines.append(f"    .word {i * fsize}")
-    lines.append("splash_seq:   ; frame, vblanks, ... , $FF (the gif's timing)")
+    lines.append("splash_seq:   ; frame, vblanks, ... , $FF")
     for j, vbl in seq:
         lines.append(f"    .byte {j}, {vbl}")
     lines.append("    .byte $FF")
@@ -525,7 +164,7 @@ def load_unscii(path="unscii-8.hex"):
     return glyphs
 
 
-# Claude Code's rotating "thinking" gerunds (a subset that fits the field).
+# Codex's rotating "thinking" gerunds (a subset that fits the field).
 SPIN_WORDS = [
     "Cogitating", "Pondering", "Ruminating", "Percolating", "Noodling",
     "Musing", "Simmering", "Brewing", "Conjuring", "Puzzling", "Marinating",
@@ -594,8 +233,8 @@ def _wave():
 
 # WAKE - the once-per-boot menu greeting (replaced GROOVE, W-488). Not a
 # melody: a rising two-voice gesture that lands on an A4+E5 fifth and fades
-# out via the release ramp in claude.s. Reads as "something woke up" - the
-# sound is about Claude, not the phone system.
+# out via the release ramp in codex.s. Reads as "something woke up" - the
+# sound is about Patch, not the phone system.
 SND_WAKE0 = [(hz, 3) for hz in (220.0, 261.6, 329.6, 392.0, 440.0,
                                 523.3, 587.3)] + [(659.3, 26)]
 SND_WAKE1 = [(0, 15), (329.6, 6), (440.0, 26)]
@@ -606,13 +245,17 @@ SND_WAKE1 = [(0, 15), (329.6, 6), (440.0, 26)]
 # ATM1 arc - speaker off at carrier. A failed dial still cuts it dead.
 # Every element is the documented tone pair, which is exactly what two
 # DOC voices are for. The DTMF digits spell C-L-A-U-D-E on a phone keypad.
-_DTMF = {"2": (697, 1336), "5": (770, 1336), "8": (852, 1336),
-         "3": (697, 1477)}
+_DTMF = {
+    "2": (697, 1336),
+    "3": (697, 1477),
+    "6": (770, 1477),
+    "9": (852, 1477),
+}
 
 def _dial_pair():
     v0, v1 = [(350, 30)], [(440, 30)]           # dial tone
     v0 += [(0, 4)]; v1 += [(0, 4)]
-    for d in "252833":                          # "CLAUDE"
+    for d in "26339":                           # "CODEX"
         lo, hi = _DTMF[d]
         v0 += [(lo, 4), (0, 3)]
         v1 += [(hi, 4), (0, 3)]

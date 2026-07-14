@@ -533,11 +533,11 @@ draw_mascot:
         rts
 
 mascot_art:
+        .byte   "    XXXXXXXX    "
+        .byte   "   X XXXXXX X   "
         .byte   "  XXXXXXXXXXXX  "
-        .byte   "  XX XXXXXX XX  "
-        .byte   "XXXXXXXXXXXXXXXX"
-        .byte   "  XXXXXXXXXXXX  "
-        .byte   "   X X    X X   "
+        .byte   "    XX XX XX    "
+        .byte   "    XX    XX    "
 
 ; =====================================================================
 ; boot menu
@@ -862,7 +862,7 @@ act_connect:
 
 ; dsnd_beat - one ~40ms chunk of dial-up theater per dial-window beat.
 ; The 1-bit impression of what a 1986 modem speaker did: dial tone,
-; PULSE dialing 2-5-2 (rotary clicks are the beeper's native idiom),
+; PULSE dialing 2-6-3 (rotary clicks are the beeper's native idiom),
 ; a ring, the answer tone, then the two-carrier buzz. A CONNECT verdict
 ; stops the classifying but not the sound: the storyboard plays to its
 ; end (W-517), and the silence after it is the Hayes ATM1 payoff
@@ -919,11 +919,11 @@ dsnd_beat:
 dsnd_tab:
         .byte   1,1,1,1,1, 0            ; off-hook, dial tone
         .byte   2,2, 0,0                ; pulse-dial 2 ...
-        .byte   2,2,2,2,2, 0,0          ; ... 5 ...
-        .byte   2,2, 0,0,0              ; ... 2
+        .byte   2,2,2,2,2,2, 0,0        ; ... 6 ...
+        .byte   2,2,2, 0,0,0            ; ... 3
         .byte   3,3,3,3, 0,0,0          ; one ring
         .byte   4,4,4, 0                ; the answer whistle
-        .byte   5,5,5,5,5,5,5,5,5,5,5   ; carriers up - the buzz
+        .byte   5,5,5,5,5,5,5,5,5       ; carriers up - the buzz
 
 ; dtone - A = half-period (5-cycle units), Y = full cycles. The serial
 ; ring is polled every half-cycle: the 6551 buffers ONE byte and the

@@ -20,3 +20,10 @@ def test_native_help_lists_only_local_commands():
         assert "/new /model /help /quit" in text
         assert "/mode " not in text
         assert "/mode," not in text
+
+
+def test_8bit_patch_keeps_blink_eye_coordinates():
+    text = Path("apple2/codex2.s").read_text()
+    assert '.byte   "   X XXXXXX X   "' in text
+    assert "adc     #4" in text
+    assert "adc     #11" in text
