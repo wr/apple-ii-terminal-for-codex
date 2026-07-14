@@ -1,8 +1,10 @@
 import json
 import os
 from pathlib import Path
+import subprocess
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -103,8 +105,72 @@ def test_header_and_footer_are_codex_specific(monkeypatch):
     be = backend(model="gpt-5.4", cwd="/tmp/repo")
     be._last_duration_ms = 2300
     be._last_output_tokens = 1200
-    assert be.header() == ("Codex CLI v0.144.1", "gpt-5.4", "/tmp/repo")
+    assert be.header() == (
+        ">_ OpenAI Codex (v0.144.1)",
+        "model: gpt-5.4   /model to change",
+        "directory: /tmp/repo",
+        "permissions: workspace-write / never",
+    )
     assert be.footer() == "Worked for 2s - 1.2k tokens"
+
+
+def test_prime_resolves_model_and_effort_without_auth(monkeypatch, tmp_path):
+    (tmp_path / "config.toml").write_text(
+        'model_reasoning_effort = "high"\n', encoding="utf-8"
+    )
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    monkeypatch.setattr(backends, "codex_version", lambda _bin: (0, 144, 4))
+
+    def fake_run(argv, **kwargs):
+        assert argv[:3] == ["codex", "doctor", "--json"]
+        assert "auth" not in " ".join(argv).lower()
+        report = {
+            "checks": {
+                "config.load": {"details": {"model": "gpt-5.6-sol"}}
+            }
+        }
+        return SimpleNamespace(stdout=json.dumps(report), returncode=0)
+
+    monkeypatch.setattr(backends.subprocess, "run", fake_run)
+    be = backend(cwd=os.path.expanduser("~/Projects/demo"))
+    be.prime()
+    assert be.header() == (
+        ">_ OpenAI Codex (v0.144.4)",
+        "model: gpt-5.6-sol high   /model to change",
+        "directory: ~/Projects/demo",
+        "permissions: workspace-write / never",
+    )
+
+
+def test_explicit_model_wins_without_running_doctor(monkeypatch):
+    monkeypatch.setattr(backends, "codex_version", lambda _bin: (0, 144, 4))
+    monkeypatch.setattr(
+        backends.subprocess,
+        "run",
+        lambda *_a, **_kw: pytest.fail("doctor should not run for explicit model"),
+    )
+    be = backend(model="gpt-explicit")
+    be.prime()
+    assert be.header()[1].startswith("model: gpt-explicit")
+
+
+def test_header_falls_back_when_doctor_times_out(monkeypatch, tmp_path):
+    monkeypatch.setattr(backends, "codex_version", lambda _bin: (0, 144, 4))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+
+    def timeout(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired("codex doctor", 10)
+
+    monkeypatch.setattr(backends.subprocess, "run", timeout)
+    be = backend(cols=40)
+    be.prime()
+    assert be.header()[1] == "model: default model"
+
+
+def test_unrestricted_permissions_are_labeled_yolo(monkeypatch):
+    monkeypatch.setattr(backends, "codex_version", lambda _bin: (0, 144, 4))
+    be = backend(model="gpt-test", sandbox="danger-full-access")
+    assert be.header()[3] == "permissions: YOLO mode"
 
 
 def fake_backend(tmp_path, **overrides):

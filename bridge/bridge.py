@@ -197,13 +197,19 @@ def is_modem_chatter(line: str) -> bool:
     return u.startswith("CONNECT ") and u[8:].strip().isdigit()
 
 
+def _header4(lines) -> tuple[str, str, str, str]:
+    """Normalize every native header frame to the four lines clients consume."""
+    values = tuple(str(line) for line in lines)[:4]
+    return (values + ("", "", "", ""))[:4]
+
+
 def send_header(term, backend) -> None:
     """Push the client's header frame: 0x0E then one CR-terminated line each."""
     hdr = backend.header() if backend else None
     if not hdr:
         return
     term.write(b"\x0e")
-    for line in hdr:
+    for line in _header4(hdr):
         term.write_line(line)
 
 
@@ -627,7 +633,7 @@ def _lock_header(term: Terminal, lines) -> None:
     """Push a LOCKED notice as a header frame - an idle native client renders
     headers even unsolicited, so the user sees it without typing first."""
     term.write(b"\x0e")
-    for line in lines:
+    for line in _header4(lines):
         term.write_line(line)
 
 

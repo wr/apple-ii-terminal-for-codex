@@ -10,7 +10,13 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Iterator
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10: omit the optional effort label
+    tomllib = None
 
 
 MIN_CODEX_VERSION = (0, 144, 1)
@@ -46,6 +52,45 @@ def abbrev_cwd(path: str | None) -> str:
     if path and path.startswith(home):
         return "~" + path[len(home):]
     return path or ""
+
+
+def _doctor_model(codex_bin: str, sandbox: str) -> str | None:
+    """Read Codex's resolved model from its redacted diagnostic report."""
+    result = subprocess.run(
+        [
+            codex_bin,
+            "doctor",
+            "--json",
+            "-c",
+            f'sandbox_mode="{sandbox}"',
+            "-c",
+            'approval_policy="never"',
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if result.returncode:
+        return None
+    report = json.loads(result.stdout)
+    value = (
+        report.get("checks", {})
+        .get("config.load", {})
+        .get("details", {})
+        .get("model")
+    )
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _configured_effort() -> str | None:
+    """Read only the optional top-level reasoning-effort setting."""
+    if tomllib is None:
+        return None
+    home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+    with (home / "config.toml").open("rb") as stream:
+        value = tomllib.load(stream).get("model_reasoning_effort")
+    return value if isinstance(value, str) and value.strip() else None
 
 class Backend:
     name = "backend"
@@ -92,6 +137,8 @@ class CodexBackend(Backend):
                  cwd: str, sandbox: str, show_tools: bool) -> None:
         self._cols = cols
         self._model = model
+        self._resolved_model: str | None = None
+        self._reasoning_effort: str | None = None
         self._bin = codex_bin
         self._cwd = cwd
         self._sandbox = sandbox
@@ -104,6 +151,18 @@ class CodexBackend(Backend):
         self._last_duration_ms: int | None = None
         self._last_output_tokens: int | None = None
         self._turn_started: float | None = None
+
+    def prime(self) -> None:
+        """Resolve display-only Codex settings without delaying startup on error."""
+        if not self._model:
+            try:
+                self._resolved_model = _doctor_model(self._bin, self._sandbox)
+            except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+                self._resolved_model = None
+        try:
+            self._reasoning_effort = _configured_effort()
+        except (OSError, ValueError, TypeError):
+            self._reasoning_effort = None
 
     def _build_cmd(self) -> list[str]:
         cmd = [self._bin, "exec"]
@@ -244,10 +303,22 @@ class CodexBackend(Backend):
     def header(self) -> tuple[str, ...]:
         version = codex_version(self._bin)
         label = ".".join(map(str, version)) if version else "?"
+        model = self._model or self._resolved_model or "default model"
+        if self._reasoning_effort:
+            model += f" {self._reasoning_effort}"
+        model_line = f"model: {model}"
+        if self._cols >= 80:
+            model_line += "   /model to change"
+        permissions = (
+            "YOLO mode"
+            if self._sandbox == "danger-full-access"
+            else f"{self._sandbox} / never"
+        )
         return (
-            f"Codex CLI v{label}",
-            self._model or "default model",
-            abbrev_cwd(self._cwd),
+            f">_ OpenAI Codex (v{label})",
+            model_line,
+            f"directory: {abbrev_cwd(self._cwd)}",
+            f"permissions: {permissions}",
         )
 
     def footer(self) -> str | None:

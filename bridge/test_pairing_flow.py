@@ -245,11 +245,14 @@ def test_run_app_session_code_pairing_sends_header_before_eot():
     # deferred token write goes deaf.
     class _BE(_FakeBackend):
         def header(self):
-            return ("Codex CLI v1", "default model", "~/x")
+            return (">_ OpenAI Codex (v1)", "model: default model",
+                    "directory: ~/x", "permissions: read-only / never")
     term = _FakeTerm([None])
     run_app_session(term, _args(cols=80), _BE(), None, "code", pair_via="code")
     w = bytes(term.written)
     assert 0x0E in w                       # header frame written
     assert EOT[0] in w                     # terminated
     assert w.index(0x0E) < w.index(EOT[0]) # header BEFORE the terminating EOT
+    title_at = term.lines_out.index(">_ OpenAI Codex (v1)")
+    assert _BE().header() == tuple(term.lines_out[title_at:title_at + 4])
     assert any("Paired" in ln for ln in term.lines_out)  # explicit confirmation text
