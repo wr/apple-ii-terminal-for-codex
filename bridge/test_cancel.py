@@ -125,7 +125,9 @@ def test_kill_group_when_leader_exits_but_child_ignores_term() -> None:
     )
     parent_src = (
         "import subprocess,sys,time;"
-        "c=subprocess.Popen([sys.executable,'-c',sys.argv[1]]);"
+        "c=subprocess.Popen([sys.executable,'-c',sys.argv[1]],"
+        "stdout=subprocess.PIPE,text=True);"
+        "assert c.stdout.readline().strip()=='ready';"
         "print(c.pid, flush=True);"
         "time.sleep(999)"
     )
@@ -135,7 +137,6 @@ def test_kill_group_when_leader_exits_but_child_ignores_term() -> None:
     )
     assert proc.stdout is not None
     child_pid = int(proc.stdout.readline())
-    time.sleep(0.3)
     backends._kill_process_group(proc, grace=0.2)
     assert _wait_dead(proc.pid), "group leader survived"
     assert _wait_dead(child_pid), "SIGTERM-ignoring child survived leader exit"
@@ -146,6 +147,7 @@ def test_codebackend_cancel_during_process_publication(monkeypatch) -> None:
     spawned = threading.Event()
     publish = threading.Event()
     holder = {}
+    errors = []
 
     def delayed_popen(*args, **kwargs):
         proc = real_popen(*args, **kwargs)
@@ -159,7 +161,13 @@ def test_codebackend_cancel_during_process_publication(monkeypatch) -> None:
         sys.executable, "-c", "import time; time.sleep(999)"
     ]
     monkeypatch.setattr(backends.subprocess, "Popen", delayed_popen)
-    worker = threading.Thread(target=lambda: list(be.stream("hello")), daemon=True)
+    def consume():
+        try:
+            list(be.stream("hello"))
+        except Exception as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=consume, daemon=True)
     worker.start()
     assert spawned.wait(2)
     be.cancel()
@@ -168,6 +176,167 @@ def test_codebackend_cancel_during_process_publication(monkeypatch) -> None:
     proc = holder["proc"]
     assert not worker.is_alive(), "stream stayed blocked after startup cancel"
     assert _wait_dead(proc.pid), "process published after cancel survived"
+    assert errors == [], f"worker raised: {errors!r}"
+
+
+class _GatedClearEvent(threading.Event):
+    """Pause clear() so a cancel can contend exactly at the turn boundary."""
+
+    def __init__(self):
+        super().__init__()
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def clear(self):
+        self.entered.set()
+        assert self.release.wait(2), "test never released turn start"
+        super().clear()
+
+
+def test_codebackend_cancel_at_turn_start_is_not_cleared() -> None:
+    be = backends.CodeBackend(cols=80, claude_bin=sys.executable)
+    be._build_cmd = lambda _text: [
+        sys.executable, "-c", "import time; time.sleep(999)"
+    ]
+    gate = _GatedClearEvent()
+    be._cancel_event = gate
+    worker_errors = []
+    cancel_errors = []
+
+    def consume():
+        try:
+            list(be.stream("hello"))
+        except Exception as exc:
+            worker_errors.append(exc)
+
+    def cancel():
+        try:
+            be.cancel()
+        except Exception as exc:
+            cancel_errors.append(exc)
+
+    worker = threading.Thread(target=consume, daemon=True)
+    worker.start()
+    assert gate.entered.wait(2)
+    canceller = threading.Thread(target=cancel, daemon=True)
+    canceller.start()
+    gate.release.set()
+    canceller.join(2)
+    worker.join(2)
+    finished_after_first_cancel = not worker.is_alive()
+    if worker.is_alive():
+        be.cancel()
+        worker.join(3)
+
+    assert not canceller.is_alive(), "cancel stayed blocked at turn start"
+    assert finished_after_first_cancel, "turn-start cancel was cleared"
+    assert not worker.is_alive(), "stream survived cleanup cancel"
+    assert worker_errors == [], f"worker raised: {worker_errors!r}"
+    assert cancel_errors == [], f"cancel worker raised: {cancel_errors!r}"
+
+
+def test_probe_model_timeout_kills_descendants(monkeypatch, tmp_path) -> None:
+    real_popen = backends.subprocess.Popen
+    pid_file = tmp_path / "probe-child.pid"
+    holder = {}
+    child_src = (
+        "import signal,time;"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN);"
+        "print('ready', flush=True);"
+        "time.sleep(999)"
+    )
+    parent_src = (
+        "import pathlib,subprocess,sys,time;"
+        "c=subprocess.Popen([sys.executable,'-c',sys.argv[1]],"
+        "stdout=subprocess.PIPE,text=True);"
+        "assert c.stdout.readline().strip()=='ready';"
+        "pathlib.Path(sys.argv[2]).write_text(str(c.pid));"
+        "time.sleep(999)"
+    )
+
+    def probe_popen(_cmd, **kwargs):
+        holder["start_new_session"] = kwargs.get("start_new_session") is True
+        proc = real_popen(
+            [sys.executable, "-c", parent_src, child_src, str(pid_file)],
+            stdin=kwargs.get("stdin"), stdout=kwargs.get("stdout"),
+            stderr=kwargs.get("stderr"), text=kwargs.get("text", False),
+            bufsize=kwargs.get("bufsize", -1),
+            start_new_session=holder["start_new_session"],
+        )
+        holder["proc"] = proc
+        return proc
+
+    monkeypatch.setattr(backends.subprocess, "Popen", probe_popen)
+    be = backends.CodeBackend(cols=80, claude_bin="probe")
+    t0 = time.monotonic()
+    child_pid = None
+    try:
+        be.probe_model(timeout=1.0)
+        elapsed = time.monotonic() - t0
+        child_pid = int(pid_file.read_text())
+        child_dead = _wait_dead(child_pid, timeout=0.5)
+    finally:
+        proc = holder.get("proc")
+        if proc is not None and holder.get("start_new_session"):
+            backends._kill_process_group(proc, grace=0.1)
+        if child_pid is not None and _alive(child_pid):
+            os.kill(child_pid, 9)
+
+    assert elapsed < 4.0, f"probe timeout cleanup took {elapsed:.2f}s"
+    assert holder["start_new_session"], "probe did not lead a process group"
+    assert child_dead, "probe timeout orphaned a descendant"
+
+
+def test_probe_model_init_kills_descendants(monkeypatch) -> None:
+    real_popen = backends.subprocess.Popen
+    holder = {}
+    child_src = (
+        "import signal,time;"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN);"
+        "print('ready', flush=True);"
+        "time.sleep(999)"
+    )
+    parent_src = (
+        "import json,subprocess,sys,time;"
+        "c=subprocess.Popen([sys.executable,'-c',sys.argv[1]],"
+        "stdout=subprocess.PIPE,text=True);"
+        "assert c.stdout.readline().strip()=='ready';"
+        "print(json.dumps({'type':'system','subtype':'init','cwd':str(c.pid)}),"
+        "flush=True);"
+        "time.sleep(999)"
+    )
+
+    def probe_popen(_cmd, **kwargs):
+        holder["start_new_session"] = kwargs.get("start_new_session") is True
+        proc = real_popen(
+            [sys.executable, "-c", parent_src, child_src],
+            stdin=kwargs.get("stdin"), stdout=kwargs.get("stdout"),
+            stderr=kwargs.get("stderr"), text=kwargs.get("text", False),
+            bufsize=kwargs.get("bufsize", -1),
+            start_new_session=holder["start_new_session"],
+        )
+        holder["proc"] = proc
+        return proc
+
+    monkeypatch.setattr(backends.subprocess, "Popen", probe_popen)
+    be = backends.CodeBackend(cols=80, claude_bin="probe")
+    t0 = time.monotonic()
+    child_pid = None
+    try:
+        be.probe_model(timeout=2.0)
+        elapsed = time.monotonic() - t0
+        child_pid = int(be._last_cwd)
+        child_dead = _wait_dead(child_pid, timeout=0.5)
+    finally:
+        proc = holder.get("proc")
+        if proc is not None and holder.get("start_new_session"):
+            backends._kill_process_group(proc, grace=0.1)
+        if child_pid is not None and _alive(child_pid):
+            os.kill(child_pid, 9)
+
+    assert elapsed < 3.0, f"normal probe cleanup took {elapsed:.2f}s"
+    assert holder["start_new_session"], "probe did not lead a process group"
+    assert child_dead, "normal probe cleanup orphaned a descendant"
 
 
 # --------------------------------------------------------------------------- #
@@ -200,6 +369,7 @@ def test_chatbackend_cancel_during_stream_publication() -> None:
     entered = threading.Event()
     publish = threading.Event()
     closed = threading.Event()
+    errors = []
 
     class BlockingText:
         def __iter__(self):
@@ -237,7 +407,13 @@ def test_chatbackend_cancel_during_stream_publication() -> None:
     be._state_lock = threading.Lock()
     be._cancel_event = threading.Event()
 
-    worker = threading.Thread(target=lambda: list(be.stream("hello")), daemon=True)
+    def consume():
+        try:
+            list(be.stream("hello"))
+        except Exception as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=consume, daemon=True)
     worker.start()
     assert entered.wait(2)
     be.cancel()
@@ -245,6 +421,79 @@ def test_chatbackend_cancel_during_stream_publication() -> None:
     worker.join(3)
     assert closed.is_set(), "stream published after cancel was not closed"
     assert not worker.is_alive(), "chat stream stayed blocked after startup cancel"
+    assert errors == [], f"worker raised: {errors!r}"
+
+
+def test_chatbackend_cancel_at_turn_start_is_not_cleared() -> None:
+    closed = threading.Event()
+    worker_errors = []
+    cancel_errors = []
+
+    class BlockingText:
+        def __iter__(self):
+            closed.wait(3)
+            return iter(())
+
+    class FakeStream:
+        text_stream = BlockingText()
+        def close(self):
+            closed.set()
+        def get_final_message(self):
+            raise AssertionError("cancelled stream must not request a final message")
+
+    class StreamContext:
+        def __enter__(self):
+            return FakeStream()
+        def __exit__(self, *_args):
+            return False
+
+    class Messages:
+        def stream(self, **_kwargs):
+            return StreamContext()
+
+    be = backends.ChatBackend.__new__(backends.ChatBackend)
+    be._client = type("Client", (), {"messages": Messages()})()
+    be._model = "test"
+    be._effort = "low"
+    be._max_tokens = 32
+    be._system = "test"
+    be._messages = []
+    be._cancel = False
+    be._stream = None
+    be._state_lock = threading.Lock()
+    gate = _GatedClearEvent()
+    be._cancel_event = gate
+
+    def consume():
+        try:
+            list(be.stream("hello"))
+        except Exception as exc:
+            worker_errors.append(exc)
+
+    def cancel():
+        try:
+            be.cancel()
+        except Exception as exc:
+            cancel_errors.append(exc)
+
+    worker = threading.Thread(target=consume, daemon=True)
+    worker.start()
+    assert gate.entered.wait(2)
+    canceller = threading.Thread(target=cancel, daemon=True)
+    canceller.start()
+    gate.release.set()
+    canceller.join(2)
+    worker.join(1)
+    closed_by_first_cancel = closed.is_set()
+    if worker.is_alive():
+        closed.set()
+        worker.join(2)
+
+    assert not canceller.is_alive(), "cancel stayed blocked at turn start"
+    assert closed_by_first_cancel, "turn-start cancel was cleared"
+    assert not worker.is_alive(), "chat stream survived test cleanup"
+    assert worker_errors == [], f"worker raised: {worker_errors!r}"
+    assert cancel_errors == [], f"cancel worker raised: {cancel_errors!r}"
 
 
 # --------------------------------------------------------------------------- #

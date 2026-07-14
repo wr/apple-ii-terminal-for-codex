@@ -178,9 +178,9 @@ class ChatBackend(Backend):
         stops us at the next chunk; closing the stream also unblocks a turn
         that's STALLED between chunks, so a wedged model doesn't hang the
         session waiting for a byte that never comes."""
-        self._cancel = True
-        self._cancel_event.set()
         with self._state_lock:
+            self._cancel = True
+            self._cancel_event.set()
             stream = self._stream
         if stream is not None:
             try:
@@ -189,8 +189,12 @@ class ChatBackend(Backend):
                 pass
 
     def stream(self, user_text: str) -> Iterator[str]:
-        self._cancel = False
-        self._cancel_event.clear()
+        # This locked reset is the turn-start boundary. Once it completes,
+        # cancel() takes the same lock, so a cancellation for this turn cannot
+        # be cleared by either half of the reset.
+        with self._state_lock:
+            self._cancel = False
+            self._cancel_event.clear()
         self._messages.append({"role": "user", "content": user_text})
         reply_parts: list[str] = []
         stream = None
@@ -413,9 +417,9 @@ class CodeBackend(Backend):
         drained on its own thread, so a full pipe can't wedge the kill. The
         pipe EOFs, stream() winds down, and the exit-code complaint is
         suppressed because we're the ones who shot it."""
-        self._cancelled = True
-        self._cancel_event.set()
         with self._state_lock:
+            self._cancelled = True
+            self._cancel_event.set()
             proc = self._proc
         if proc is not None:
             _kill_process_group(proc)
@@ -423,8 +427,12 @@ class CodeBackend(Backend):
     def stream(self, user_text: str) -> Iterator[str]:
         self._last_duration_ms = None
         self._last_output_tokens = None
-        self._cancelled = False
-        self._cancel_event.clear()
+        # This locked reset is the turn-start boundary. Once it completes,
+        # cancel() takes the same lock, so a cancellation for this turn cannot
+        # be cleared by either half of the reset.
+        with self._state_lock:
+            self._cancelled = False
+            self._cancel_event.clear()
         try:
             proc = subprocess.Popen(
                 self._build_cmd(user_text),
