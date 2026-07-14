@@ -130,6 +130,14 @@ class Backend:
     def reset(self) -> None:
         pass
 
+    def begin_turn(self) -> None:
+        """Synchronously establish a new cancellation boundary.
+
+        Callers invoke this before handing stream() to a worker, so a cancel
+        arriving before the generator's first iteration cannot be erased.
+        """
+        pass
+
     def footer(self) -> str | None:
         """Optional one-line status shown after a reply (e.g. 'Worked for 4m 41s').
         Returns None when there's nothing to show."""
@@ -173,6 +181,11 @@ class ChatBackend(Backend):
     def reset(self) -> None:
         self._messages = []
 
+    def begin_turn(self) -> None:
+        with self._state_lock:
+            self._cancel = False
+            self._cancel_event.clear()
+
     def cancel(self) -> None:
         """Abort an in-flight turn (the client sent Ctrl-C). Setting the flag
         stops us at the next chunk; closing the stream also unblocks a turn
@@ -189,12 +202,6 @@ class ChatBackend(Backend):
                 pass
 
     def stream(self, user_text: str) -> Iterator[str]:
-        # This locked reset is the turn-start boundary. Once it completes,
-        # cancel() takes the same lock, so a cancellation for this turn cannot
-        # be cleared by either half of the reset.
-        with self._state_lock:
-            self._cancel = False
-            self._cancel_event.clear()
         self._messages.append({"role": "user", "content": user_text})
         reply_parts: list[str] = []
         stream = None
@@ -315,6 +322,11 @@ class CodeBackend(Backend):
     def reset(self) -> None:
         self._session_id = None
 
+    def begin_turn(self) -> None:
+        with self._state_lock:
+            self._cancelled = False
+            self._cancel_event.clear()
+
     def header(self) -> tuple[str, ...] | None:
         ver = getattr(self, "_last_version", None) or claude_version(self._bin)
         model = getattr(self, "_last_model", None) or self._model
@@ -427,12 +439,6 @@ class CodeBackend(Backend):
     def stream(self, user_text: str) -> Iterator[str]:
         self._last_duration_ms = None
         self._last_output_tokens = None
-        # This locked reset is the turn-start boundary. Once it completes,
-        # cancel() takes the same lock, so a cancellation for this turn cannot
-        # be cleared by either half of the reset.
-        with self._state_lock:
-            self._cancelled = False
-            self._cancel_event.clear()
         try:
             proc = subprocess.Popen(
                 self._build_cmd(user_text),

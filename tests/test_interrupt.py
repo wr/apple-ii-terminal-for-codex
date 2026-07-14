@@ -227,6 +227,25 @@ def test_host_interrupt_cancels_and_joins_reply_worker():
     assert backend.done_event.is_set(), "host Ctrl-C did not join reply worker"
 
 
+def test_partial_thread_start_failure_cancels_and_joins_worker(monkeypatch):
+    ch = FakeChannel()
+    ch.feed(b"hello\r")
+    term = Terminal(ch, TermConfig(width=80, echo=False, telnet=False))
+    backend = SlowBackend()
+    real_start = threading.Thread.start
+
+    def start_then_raise(thread):
+        real_start(thread)
+        raise RuntimeError("start failed after worker launch")
+
+    monkeypatch.setattr(bridge.threading.Thread, "start", start_then_raise)
+    with pytest.raises(RuntimeError, match="start failed after worker launch"):
+        bridge.run_app_session(term, Args(), backend, None, "code")
+
+    assert backend.cancelled, "partial start left backend work running"
+    assert backend.done_event.wait(1), "partial start skipped worker join"
+
+
 def test_cancel_error_still_joins_reply_worker():
     class RaisingCancelBackend(NonCooperativeBackend):
         def cancel(self):

@@ -343,7 +343,8 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode,
                 _enqueue(done)
 
         worker = threading.Thread(target=_pump, daemon=True)
-        worker.start()
+        worker_started = False
+        turn_begun = False
         interrupted = False
         finished = False
         cancel_requested = False
@@ -357,6 +358,16 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode,
                 backend.cancel()
 
         try:
+            begin_turn = getattr(backend, "begin_turn", None)
+            if begin_turn is not None:
+                begin_turn()
+            turn_begun = True
+            try:
+                worker.start()
+            finally:
+                # A monkeypatched or platform-level start can raise after the
+                # OS thread is live. ident tells cleanup that join is legal.
+                worker_started = worker.ident is not None
             while True:
                 now = time.monotonic()
                 if now >= next_poll:
@@ -413,12 +424,13 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode,
         finally:
             stop_pump.set()
             try:
-                if not finished:
+                if turn_begun and not finished:
                     _cancel_backend()
             finally:
-                worker.join(timeout=join_timeout)
-                if worker.is_alive():
-                    log("reply worker did not stop after cancellation", peer=peer)
+                if worker_started:
+                    worker.join(timeout=join_timeout)
+                    if worker.is_alive():
+                        log("reply worker did not stop after cancellation", peer=peer)
         lines.extend(fmt.flush())
         send_header(term, backend)  # real header, drawn once by the client
         if lines:
@@ -891,6 +903,9 @@ def _run_session(term: Terminal, args, pm, guard) -> None:
         t0 = time.monotonic()
         turn_finished = False
         try:
+            begin_turn = getattr(backend, "begin_turn", None)
+            if begin_turn is not None:
+                begin_turn()
             for chunk in backend.stream(user):
                 for out_line in fmt.feed(chunk):
                     term.write_line(out_line)

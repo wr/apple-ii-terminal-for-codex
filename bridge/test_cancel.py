@@ -163,6 +163,7 @@ def test_codebackend_cancel_during_process_publication(monkeypatch) -> None:
     monkeypatch.setattr(backends.subprocess, "Popen", delayed_popen)
     def consume():
         try:
+            be.begin_turn()
             list(be.stream("hello"))
         except Exception as exc:
             errors.append(exc)
@@ -177,6 +178,21 @@ def test_codebackend_cancel_during_process_publication(monkeypatch) -> None:
     assert not worker.is_alive(), "stream stayed blocked after startup cancel"
     assert _wait_dead(proc.pid), "process published after cancel survived"
     assert errors == [], f"worker raised: {errors!r}"
+
+
+def test_codebackend_cancel_after_generator_creation_is_not_cleared() -> None:
+    be = backends.CodeBackend(cols=80, claude_bin=sys.executable)
+    be._build_cmd = lambda _text: [
+        sys.executable, "-c", "import time; time.sleep(999)"
+    ]
+    be.begin_turn()
+    stream = be.stream("hello")
+    be.cancel()
+
+    list(stream)
+
+    assert be._cancel_event.is_set()
+    assert be._proc is None
 
 
 class _GatedClearEvent(threading.Event):
@@ -205,6 +221,7 @@ def test_codebackend_cancel_at_turn_start_is_not_cleared() -> None:
 
     def consume():
         try:
+            be.begin_turn()
             list(be.stream("hello"))
         except Exception as exc:
             worker_errors.append(exc)
@@ -466,6 +483,7 @@ def test_chatbackend_cancel_at_turn_start_is_not_cleared() -> None:
 
     def consume():
         try:
+            be.begin_turn()
             list(be.stream("hello"))
         except Exception as exc:
             worker_errors.append(exc)
@@ -494,6 +512,47 @@ def test_chatbackend_cancel_at_turn_start_is_not_cleared() -> None:
     assert not worker.is_alive(), "chat stream survived test cleanup"
     assert worker_errors == [], f"worker raised: {worker_errors!r}"
     assert cancel_errors == [], f"cancel worker raised: {cancel_errors!r}"
+
+
+def test_chatbackend_cancel_after_generator_creation_is_not_cleared() -> None:
+    closed = threading.Event()
+
+    class FakeStream:
+        text_stream = ()
+        def close(self):
+            closed.set()
+        def get_final_message(self):
+            raise AssertionError("cancelled stream must not request final message")
+
+    class StreamContext:
+        def __enter__(self):
+            return FakeStream()
+        def __exit__(self, *_args):
+            return False
+
+    class Messages:
+        def stream(self, **_kwargs):
+            return StreamContext()
+
+    be = backends.ChatBackend.__new__(backends.ChatBackend)
+    be._client = type("Client", (), {"messages": Messages()})()
+    be._model = "test"
+    be._effort = "low"
+    be._max_tokens = 32
+    be._system = "test"
+    be._messages = []
+    be._cancel = False
+    be._stream = None
+    be._state_lock = threading.Lock()
+    be._cancel_event = threading.Event()
+
+    be.begin_turn()
+    stream = be.stream("hello")
+    be.cancel()
+    list(stream)
+
+    assert closed.is_set()
+    assert be._cancel_event.is_set()
 
 
 # --------------------------------------------------------------------------- #

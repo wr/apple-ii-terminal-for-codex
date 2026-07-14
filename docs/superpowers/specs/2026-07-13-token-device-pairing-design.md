@@ -19,10 +19,11 @@ observer. Possession of a stored token is the credential; it is not proof of a
 particular physical device.
 
 The implemented stale-token fallback also differs from the original flow below:
-the first unrecognized 32-character token-shaped value prompts for the current
-code but does not consume a guess strike. Further token-shaped misses in that
-connection count as code guesses. The rest of this document records the
-approved token-storage design and should be read with this amendment.
+the first unrecognized 32-character token-shaped value from each source IP in a
+bridge run prompts for the current code but does not consume a guess strike.
+This applies on either transport; further token-shaped misses from that IP,
+including after reconnect, count as code guesses. The rest of this document
+records the approved token-storage design and should be read with this amendment.
 
 ## Problem
 
