@@ -27,9 +27,12 @@ def test_interrupt_palette_only_replaces_light_gray_with_red():
     ]
 
 
-def test_interrupt_asset_is_a_filled_square():
+def test_interrupt_asset_compensates_for_narrow_shr_pixels():
     assert gen_assets.emit_interrupt() == (
-        "interrupt_data:\n    .byte $00,$7E,$7E,$7E,$7E,$7E,$7E,$00"
+        "interrupt_left_data:\n"
+        "    .byte $00,$7F,$7F,$7F,$7F,$7F,$7F,$00\n"
+        "interrupt_right_data:\n"
+        "    .byte $00,$FE,$FE,$FE,$FE,$FE,$FE,$00"
     )
 
 
@@ -88,11 +91,13 @@ def test_gs_interrupt_rows_use_palette_one_and_semantic_red():
 
     assert "CMD_INTERRUPT = $06" in source
     assert "COLOR_RED = $06" in source
-    assert "CELL_INTERRUPT = $02" in source
+    assert "CELL_INTERRUPT_L = $02" in source
+    assert "CELL_INTERRUPT_R = $03" in source
     assert "cmp     #CMD_INTERRUPT" in receiver
     assert "jsr     draw_interrupt" in receiver
     assert "and     #$03" in renderer
     assert "$9D00" in scroller and "SCBs follow their text rows" in scroller
     assert "#$80" in clearer and "restore palette 0" in clearer
     assert "set_interrupt_row:" in source
-    assert "interrupt_data" in source
+    assert "interrupt_left_data" in source
+    assert "interrupt_right_data" in source

@@ -184,9 +184,16 @@ def emit_bullet():
 
 
 def emit_interrupt():
-    # filled square used by the Codex CLI-style interrupted-turn marker
-    rows = [0x00, 0x7E, 0x7E, 0x7E, 0x7E, 0x7E, 0x7E, 0x00]
-    return "interrupt_data:\n    .byte " + ",".join(f"${b:02X}" for b in rows)
+    # A 14x6 logical rectangle appears square after 640x200 is stretched to
+    # 4:3. Split it across two text cells because 640-mode pixels are narrow.
+    left = [0x00] + [0x7F] * 6 + [0x00]
+    right = [0x00] + [0xFE] * 6 + [0x00]
+    return (
+        "interrupt_left_data:\n    .byte "
+        + ",".join(f"${b:02X}" for b in left)
+        + "\ninterrupt_right_data:\n    .byte "
+        + ",".join(f"${b:02X}" for b in right)
+    )
 
 
 FONT_OVERRIDES = {

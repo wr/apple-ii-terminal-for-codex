@@ -80,7 +80,8 @@ BUF_BANK   = $02
 BUF_LINES  = 128
 BUF_STRIDE = 160       ; 80 cells * 2 bytes
 CELL_BULLET = $01      ; stored-char value meaning "the reply bullet glyph"
-CELL_INTERRUPT = $02   ; stored-char value meaning "the interrupt square glyph"
+CELL_INTERRUPT_L = $02 ; stored-char values for the two-cell interrupt square
+CELL_INTERRUPT_R = $03
 COLOR_RED = $06        ; semantic red; hardware color 2 on interrupt-palette rows
 SCROLL_STEP = 3        ; lines moved per arrow press
 
@@ -2303,11 +2304,19 @@ draw_interrupt:
         sta     txtcolor
         rep     #$20
         .a16
-        lda     #interrupt_data
+        lda     #interrupt_left_data
         sta     glyphptr
         jsr     put_common
         .a8
-        lda     #CELL_INTERRUPT
+        lda     #CELL_INTERRUPT_L
+        jsr     rec_cell
+        rep     #$20
+        .a16
+        lda     #interrupt_right_data
+        sta     glyphptr
+        jsr     put_common
+        .a8
+        lda     #CELL_INTERRUPT_R
         jsr     rec_cell
         lda     #' '
         jsr     cout
@@ -2577,8 +2586,10 @@ dc_normal_palette:
         pla
         cmp     #CELL_BULLET
         beq     dc_bullet
-        cmp     #CELL_INTERRUPT
-        beq     dc_interrupt
+        cmp     #CELL_INTERRUPT_L
+        beq     dc_interrupt_l
+        cmp     #CELL_INTERRUPT_R
+        beq     dc_interrupt_r
         jmp     putchar
 dc_bullet:
         rep     #$20
@@ -2586,10 +2597,16 @@ dc_bullet:
         lda     #bullet_data
         sta     glyphptr
         jmp     put_common
-dc_interrupt:
+dc_interrupt_l:
         rep     #$20
         .a16
-        lda     #interrupt_data
+        lda     #interrupt_left_data
+        sta     glyphptr
+        jmp     put_common
+dc_interrupt_r:
+        rep     #$20
+        .a16
+        lda     #interrupt_right_data
         sta     glyphptr
         jmp     put_common
 

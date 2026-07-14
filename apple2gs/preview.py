@@ -3,8 +3,8 @@
 legibility without an emulator. Reproduces codex.s's putchar math.
 
 Usage: python3 preview.py [assets.inc] [out.png]
-Parses shr_palette + font_data (8 bytes/glyph, bit7=leftmost) from assets.inc
-and lays out a sample transcript in the same colors the client uses.
+Parses the session/interrupt palettes and font_data (8 bytes/glyph,
+bit7=leftmost) from assets.inc, then lays out a sample transcript.
 """
 import re
 import sys
@@ -14,11 +14,9 @@ from PIL import Image
 MODE = "640"  # "640" (4px/byte, 2bit) or "320" (2px/byte, 4bit)
 
 
-def parse_assets(path):
-    text = open(path).read()
-
-    # palette: 16 .word $0RGB after shr_palette:
-    pal_block = text.split("shr_palette:")[1]
+def parse_palette(text, label):
+    """Return the $0RGB words following a named generated palette label."""
+    pal_block = text.split(f"{label}:", 1)[1]
     words = re.findall(r"\.word\s+\$([0-9A-Fa-f]{4})", pal_block)[:16]
     palette = []
     for w in words:
@@ -27,6 +25,13 @@ def parse_assets(path):
         g = (v >> 4) & 0xF
         b = v & 0xF
         palette.append((r * 17, g * 17, b * 17))  # 4-bit -> 8-bit
+    return palette
+
+
+def parse_assets(path):
+    text = open(path).read()
+    palette = parse_palette(text, "shr_palette")
+    interrupt_palette = parse_palette(text, "shr_palette_interrupt")
 
     # font: sequence of .byte rows after font_data:, 8 bytes per glyph
     font_block = text.split("font_data:")[1]
@@ -46,7 +51,7 @@ def parse_assets(path):
         for b in rowbytes:
             row += [(b >> 6) & 3, (b >> 4) & 3, (b >> 2) & 3, b & 3]
         mascot.append(row)
-    return palette, glyphs, mascot
+    return palette, interrupt_palette, glyphs, mascot
 
 
 def glyph_for(glyphs, ch, first=32):
@@ -94,10 +99,31 @@ def draw_bullet(px, col, row, color):
                 px[(x0 + c, y0 + r)] = color
 
 
+_INTERRUPT = (
+    "................",
+    ".##############.",
+    ".##############.",
+    ".##############.",
+    ".##############.",
+    ".##############.",
+    ".##############.",
+    "................",
+)
+
+
+def draw_interrupt(px, col, row, color):
+    x0 = col * 8
+    y0 = row * 8
+    for r, line in enumerate(_INTERRUPT):
+        for c, ch in enumerate(line):
+            if ch == "#":
+                px[(x0 + c, y0 + r)] = color
+
+
 def main():
     assets = sys.argv[1] if len(sys.argv) > 1 else "assets.inc"
     out = sys.argv[2] if len(sys.argv) > 2 else "preview.png"
-    palette, glyphs, mascot = parse_assets(assets)
+    palette, interrupt_palette, glyphs, mascot = parse_assets(assets)
 
     W, H = 640, 200  # SHR 640 mode logical grid (we render text at 8x8 cells)
     px = {}  # (x,y) -> color value
@@ -107,17 +133,19 @@ def main():
 
     border = "+" + "-" * 78 + "+"
     draw_str(px, 0, 0, border, GRAY, glyphs)
-    draw_str(px, 0, 1, "| >_ OpenAI Codex (v0.144.4)".ljust(79) + "|", ACCENT, glyphs)
+    draw_str(px, 0, 1, "| >_ OpenAI Codex (v0.144.4)".ljust(79) + "|", WHITE, glyphs)
     draw_str(px, 0, 2, "| model: gpt-5.6-sol high   /model to change".ljust(79) + "|", GRAY, glyphs)
     draw_str(px, 0, 3, "| directory: ~/Projects/appleii-codex".ljust(79) + "|", GRAY, glyphs)
     draw_str(px, 0, 4, "| permissions: workspace-write / never".ljust(79) + "|", GRAY, glyphs)
     draw_str(px, 0, 5, border, GRAY, glyphs)
     # transcript: your messages white, Codex replies gray with a white bullet
     draw_str(px, 0, 7, "> what does render.py do?", WHITE, glyphs)
-    draw_bullet(px, 0, 9, ACCENT)
+    draw_bullet(px, 0, 9, WHITE)
     draw_str(px, 2, 9, "It flattens Codex Markdown to 7-bit", GRAY, glyphs)
     draw_str(px, 2, 10, "ASCII and word-wraps it to 40 or 80", GRAY, glyphs)
     draw_str(px, 2, 11, "columns for the Apple II to draw.", GRAY, glyphs)
+    draw_interrupt(px, 0, 13, ACCENT)
+    draw_str(px, 3, 13, "Interrupted by user", ACCENT, glyphs)
     draw_str(px, 0, 20, "* Working (5s * esc to interrupt)", ACCENT, glyphs)
 
     # Build the logical 640x200 framebuffer, 1 output px per SHR px.
@@ -125,7 +153,8 @@ def main():
     ip = img.load()
     for (x, y), v in px.items():
         if 0 <= x < W and 0 <= y < H:
-            ip[x, y] = palette[v & 0xF]
+            active_palette = interrupt_palette if y // 8 == 13 else palette
+            ip[x, y] = active_palette[v & 0xF]
     # KEGS displays 640x200 stretched to a 4:3 screen, so each SHR pixel is
     # ~0.42 wide : 1 tall. Resize to a 4:3 frame so the preview matches KEGS.
     full = img.resize((1280, 960), Image.NEAREST)
