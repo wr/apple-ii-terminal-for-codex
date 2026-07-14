@@ -56,7 +56,7 @@ SCC_STAT   = $C038     ; RR0: bit0=Rx avail, bit2=Tx empty
 SCC_DATA   = $C03A
 RBUF       = $1E00     ; 256-byte serial Rx ring buffer (bank 0, below the code)
 EOT        = $04
-CMD_COLOR  = $01       ; in-band: next byte sets txtcolor (1 gray/2 white/3 white)
+CMD_COLOR  = $01       ; in-band: next byte sets txtcolor (1 gray/2 light gray/3 white)
 CMD_BULLET = $02       ; in-band: draw the white reply bullet here
 CMD_QUIT   = $03       ; in-band: bridge says session over -> back to the menu
 CMD_TOKEN  = $05       ; in-band: bridge issues a device token; retained for this boot
@@ -1490,31 +1490,34 @@ sp_q:   lda     #1
         sta     quitflag
         bra     sp_lp
 sp_draw:
-        lda     #2              ; white status
-        sta     txtcolor
         rep     #$20
         .a16
         lda     #0
         sta     curcol
         sep     #$20
         .a8
-        ; blinking Apple-safe bullet
+        ; Always-visible star pulse: gray -> light gray -> white -> light gray.
         lda     frame
-        and     #$04
-        beq     sp_boff
+        and     #$03
+        tax
+        lda     star_colors,x
+        sta     txtcolor
         lda     #'*'
-        bra     sp_bput
-sp_boff:
-        lda     #' '
-sp_bput:
         jsr     putchar
+        lda     #1
+        sta     txtcolor
+        lda     #' '
+        jsr     putchar
+        jsr     draw_working
+        lda     #1              ; timer and interrupt hint stay steady gray
+        sta     txtcolor
         rep     #$20
         .a16
-        lda     #str_working
+        lda     #str_worktail
         sta     strptr
         sep     #$20
         .a8
-        jsr     draw_str        ; " Working ("
+        jsr     draw_str        ; " ("
         jsr     draw_secs
         rep     #$20
         .a16
@@ -1555,6 +1558,37 @@ sp_exit:
         sta     curcol
         sep     #$20
         .a8
+        rts
+
+; draw_working - shimmer only the seven letters in "Working". frame selects
+; one of eight rows so the white peak sweeps through and just past the word.
+draw_working:
+        .a8
+        .i8
+        lda     frame
+        and     #$07
+        sta     shimmer_base
+        asl     a
+        asl     a
+        asl     a
+        sec
+        sbc     shimmer_base    ; (frame & 7) * 7
+        sta     shimmer_base
+        stz     shimmer_ix
+dw_lp:
+        clc
+        lda     shimmer_base
+        adc     shimmer_ix
+        tax
+        lda     shimmer_colors,x
+        sta     txtcolor
+        ldy     shimmer_ix
+        lda     str_working,y
+        jsr     putchar
+        inc     shimmer_ix
+        lda     shimmer_ix
+        cmp     #7
+        bcc     dw_lp
         rts
 
 ; =====================================================================
@@ -1785,7 +1819,7 @@ dh_line:
         lda     hdr_row
         cmp     #1
         bne     dh_gray
-        lda     #2
+        lda     #3
         sta     txtcolor        ; title row is white
 dh_gray:
         jsr     hdr_readline
@@ -2905,8 +2939,19 @@ str_anykey: .byte "press any key to return",0
 str_model:  .byte "",0
 str_link:   .byte "Apple II <-> Codex",0
 str_prompt: .byte "> ",0
-str_working:.byte " Working (",0
+str_working:.byte "Working",0
+str_worktail:.byte " (",0
 str_interrupt:.byte "s * esc to interrupt)",0
+star_colors:.byte 1,2,3,2
+shimmer_colors:
+        .byte 3,2,1,1,1,1,1
+        .byte 2,3,2,1,1,1,1
+        .byte 1,2,3,2,1,1,1
+        .byte 1,1,2,3,2,1,1
+        .byte 1,1,1,2,3,2,1
+        .byte 1,1,1,1,2,3,2
+        .byte 1,1,1,1,1,2,3
+        .byte 1,1,1,1,1,1,2
 
 linebuf:    .res 128
 sp_vblsub:  .res 1          ; vblanks counted within the current second
@@ -2914,6 +2959,8 @@ sp_ones:    .res 1          ; elapsed-seconds decimal digits
 sp_tens:    .res 1
 sp_huns:    .res 1
 spin_cancel:.res 1          ; one interrupt byte sent for this turn
+shimmer_base:.res 1         ; frame's first offset into shimmer_colors
+shimmer_ix: .res 1          ; character within Working (0..6)
 b_head:     .res 1          ; ring index of the current (being-written) line
 b_count:    .res 1          ; number of lines recorded (1..BUF_LINES)
 b_col:      .res 1          ; column within the current line (0..79)

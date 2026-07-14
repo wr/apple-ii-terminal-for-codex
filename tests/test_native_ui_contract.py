@@ -15,9 +15,13 @@ def test_native_clients_expect_four_header_lines_and_six_header_rows():
 
 
 def test_native_clients_show_codex_working_copy():
-    for source in SOURCES:
-        text = source.read_text()
-        assert '" Working ("' in text
+    gs = SOURCES[0].read_text()
+    eight_bit = SOURCES[1].read_text()
+
+    assert '"Working"' in gs
+    assert '" ("' in gs
+    assert '" Working ("' in eight_bit
+    for text in (gs, eight_bit):
         assert '"s * esc to interrupt)"' in text
 
 

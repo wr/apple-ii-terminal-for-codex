@@ -4,14 +4,14 @@
 640 mode: 4 pixels/byte, 2 bits each. Because the hardware picks the palette
 entry from BOTH the pixel value and its column-within-byte, we replicate the 4
 colors across all 16 palette slots so a 2-bit value means the same color
-everywhere. 4 usable colors: 0 black, 1 gray, 2 white, 3 white.
+everywhere. 4 usable colors: 0 black, 1 gray, 2 light gray, 3 white.
 """
 
 COL_BLACK, COL_GRAY, COL_ACCENT, COL_WHITE = 0, 1, 2, 3
 COLORS = {                       # value -> $0RGB (4 bits/channel)
     0: (0x0, 0x0, 0x0),          # black background
     1: (0x9, 0x9, 0x9),          # mid gray    (Codex replies + input box)
-    2: (0xF, 0xF, 0xF),          # white       (titles / status)
+    2: (0xC, 0xC, 0xC),          # light gray  (animated status accent)
     3: (0xF, 0xF, 0xF),          # white       (user's submitted messages)
 }
 
