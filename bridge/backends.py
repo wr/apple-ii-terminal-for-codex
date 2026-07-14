@@ -24,6 +24,28 @@ from typing import Iterator
 
 _version_cache: dict[str, str] = {}
 
+MIN_CODEX_VERSION = (0, 144, 1)
+
+
+def _parse_codex_version(raw: str) -> tuple[int, int, int] | None:
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", raw)
+    return tuple(map(int, match.groups())) if match else None
+
+
+def codex_version(codex_bin: str = "codex") -> tuple[int, int, int] | None:
+    """Return the installed Codex CLI version, or None when unavailable."""
+    try:
+        result = subprocess.run(
+            [codex_bin, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except OSError:
+        return None
+    return _parse_codex_version(result.stdout)
+
 
 def claude_version(claude_bin: str = "claude") -> str:
     """`claude --version` -> just the version number (cached), or '?' on failure."""
@@ -155,6 +177,129 @@ class Backend:
         """Stop an in-flight stream() early (the client sent Ctrl-C). Safe to
         call from another thread; a backend that can't cancel just ignores it."""
         pass
+
+
+class CodexBackend(Backend):
+    """Map non-interactive Codex JSONL events onto the terminal backend API."""
+
+    name = "codex"
+
+    def __init__(self, cols: int, model: str | None, codex_bin: str,
+                 cwd: str, sandbox: str, show_tools: bool) -> None:
+        self._cols = cols
+        self._model = model
+        self._bin = codex_bin
+        self._cwd = cwd
+        self._sandbox = sandbox
+        self._show_tools = show_tools
+        self._thread_id: str | None = None
+        self._proc: subprocess.Popen | None = None
+        self._state_lock = threading.Lock()
+        self._cancel_event = threading.Event()
+        self._cancelled = False
+        self._last_duration_ms: int | None = None
+        self._last_output_tokens: int | None = None
+        self._turn_started: float | None = None
+
+    def _build_cmd(self) -> list[str]:
+        cmd = [self._bin, "exec"]
+        if self._thread_id:
+            cmd.append("resume")
+        cmd += [
+            "--json",
+            "--color",
+            "never",
+            "-c",
+            f'sandbox_mode="{self._sandbox}"',
+            "-c",
+            'approval_policy="never"',
+        ]
+        if self._model:
+            cmd += ["--model", self._model]
+        if self._thread_id:
+            cmd.append(self._thread_id)
+        cmd.append("-")
+        return cmd
+
+    def reset(self) -> None:
+        self._thread_id = None
+
+    def header(self) -> tuple[str, ...]:
+        version = codex_version(self._bin)
+        label = ".".join(map(str, version)) if version else "?"
+        return (
+            f"Codex CLI v{label}",
+            self._model or "default model",
+            abbrev_cwd(self._cwd),
+        )
+
+    def footer(self) -> str | None:
+        if self._last_duration_ms is None:
+            return None
+        seconds = round(self._last_duration_ms / 1000)
+        elapsed = (
+            f"{seconds // 60}m {seconds % 60}s"
+            if seconds >= 60
+            else f"{seconds}s"
+        )
+        footer = f"Worked for {elapsed}"
+        if self._last_output_tokens:
+            if self._last_output_tokens >= 1000:
+                tokens = (
+                    f"{self._last_output_tokens / 1000:.1f}".rstrip("0").rstrip(".")
+                    + "k"
+                )
+            else:
+                tokens = str(self._last_output_tokens)
+            footer += f" - {tokens} tokens"
+        return footer
+
+    def _render_event(self, event: dict) -> Iterator[str]:
+        etype = event.get("type")
+        if etype == "thread.started":
+            self._thread_id = event.get("thread_id") or self._thread_id
+        elif etype == "turn.started":
+            self._turn_started = time.monotonic()
+        elif etype == "turn.completed":
+            usage = event.get("usage") or {}
+            self._last_output_tokens = usage.get("output_tokens")
+        elif etype in ("turn.failed", "error"):
+            yield "\n[Codex request failed; see the bridge console]"
+        elif etype in ("item.started", "item.completed"):
+            item = event.get("item") or {}
+            kind = item.get("type")
+            if etype == "item.completed" and kind == "agent_message":
+                text = item.get("text")
+                if isinstance(text, str):
+                    yield text
+            elif self._show_tools:
+                summary = self._tool_summary(item)
+                if summary:
+                    yield f"[{summary}]\n"
+
+    def _tool_summary(self, item: dict) -> str | None:
+        kind = item.get("type")
+        if kind == "command_execution":
+            value = item.get("command") or "command"
+        elif kind == "file_change":
+            changes = item.get("changes") or []
+            value = (
+                f"changed {changes[0].get('path', 'file')}"
+                if changes
+                else "changed file"
+            )
+        elif kind == "web_search":
+            value = f"searched {item.get('query', 'web')}"
+        elif kind == "mcp_tool_call":
+            value = f"{item.get('server', 'MCP')}/{item.get('tool', 'tool')}"
+        elif kind == "todo_list":
+            entries = item.get("items") or []
+            complete = sum(bool(entry.get("completed")) for entry in entries)
+            value = f"plan {complete}/{len(entries)}"
+        else:
+            return None
+        limit = max(8, self._cols - 4)
+        return value if len(value) <= limit else value[:limit - 3] + "..."
 
 
 # --------------------------------------------------------------------------- #

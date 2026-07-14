@@ -1,0 +1,8 @@
+{"type":"item.started","item":{"id":"cmd_1","type":"command_execution","command":"pytest -q"}}
+{"type":"item.completed","item":{"id":"cmd_1","type":"command_execution","command":"pytest -q","exit_code":0,"aggregated_output":"2 passed"}}
+{"type":"item.completed","item":{"id":"file_1","type":"file_change","changes":[{"path":"bridge.py","kind":"update"}],"status":"completed"}}
+{"type":"item.completed","item":{"id":"web_1","type":"web_search","query":"Codex docs"}}
+{"type":"item.completed","item":{"id":"mcp_1","type":"mcp_tool_call","server":"github","tool":"get_file","status":"completed"}}
+{"type":"item.completed","item":{"id":"plan_1","type":"todo_list","items":[{"text":"Run tests","completed":true}]}}
+{"type":"item.completed","item":{"id":"answer_1","type":"agent_message","text":"All tests pass."}}
+{"type":"turn.completed","usage":{"output_tokens":4}}

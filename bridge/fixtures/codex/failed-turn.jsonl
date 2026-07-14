@@ -1,0 +1,4 @@
+{"type":"turn.started"}
+not-json
+{"type":"future.event","payload":{"secret":"ignored"}}
+{"type":"turn.failed","error":{"message":"request failed with bearer sk-secret-value"}}
