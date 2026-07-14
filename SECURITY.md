@@ -16,10 +16,10 @@ Use `--host 127.0.0.1` for emulator-only access. A direct `--serial` connection 
 
 The first native-client pairing exchanges a six-character console code for a device token. That token is a bearer credential: possession grants access without the code.
 
-- The Apple II stores the plaintext token in a reserved sector of its boot disk.
+- The 8-bit Apple II client stores the plaintext token in a reserved sector of its boot disk. The IIgs client retains it only in RAM and must pair again after reboot.
 - The host stores only its SHA-256 hash, first-seen IP, and pairing time in `$XDG_CONFIG_HOME/codex-ii-terminal/paired.json`, or `~/.config/codex-ii-terminal/paired.json` when XDG is unset.
 - Telnet carries the code and token in plaintext.
-- Run with `--clear-paired` to revoke all issued tokens. Rebuild or erase the client disk before giving it to someone else.
+- Run with `--clear-paired` to revoke all issued tokens. Rebuild or erase an 8-bit client disk before giving it to someone else.
 
 Treat `CODEX.dsk`, its FloppyEmu copy, and any physical floppy containing it like house keys.
 

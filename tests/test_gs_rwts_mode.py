@@ -1,15 +1,14 @@
 from pathlib import Path
 
 
-def test_gs_enters_6502_emulation_mode_around_dos_rwts():
+def test_gs_session_never_calls_dos_rwts_on_real_hardware_paths():
     source = Path("apple2gs/codex.s").read_text()
-    wrapper = source.split("rwts_call:", 1)[1].split("; tok_valid", 1)[0]
+    session_open = source.split("session_start:", 1)[1].split("main:", 1)[0]
+    turn_loop = source.split("main:", 1)[1].split("quit_to_menu:", 1)[0]
+    token_receive = source.split("do_token:", 1)[1].split("token_flush:", 1)[0]
 
-    enter = wrapper.index("sec")
-    enter_xce = wrapper.index("xce", enter)
-    call = wrapper.index("jsr     RWTS", enter_xce)
-    leave = wrapper.index("clc", call)
-    leave_xce = wrapper.index("xce", leave)
-    restore_width = wrapper.index("rep     #$30", leave_xce)
-
-    assert enter < enter_xce < call < leave < leave_xce < restore_width
+    assert "token_read" not in session_open
+    assert "tok_valid" not in session_open
+    assert "token_flush" not in turn_loop
+    assert "token_pending" not in token_receive
+    assert "jsr     RWTS" not in source

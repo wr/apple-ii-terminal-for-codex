@@ -43,7 +43,7 @@ The native client dials `ATDS=1`. Other modem firmware may use different store o
 
 Copy `CODEX.dsk` from Releases to a FloppyEmu SD card in 5.25-inch mode. On macOS, `tools/install-sd.sh` pushes the built image without replacing the existing FAT directory entry, which avoids FloppyEmu fragmentation failures. Back up the card first.
 
-Power on and choose **Connect**. The bridge prints a six-character pairing code on its console the first time a client connects. Enter it on the Apple II. The client stores the resulting bearer token on its boot disk and reconnects automatically later. Run with `--clear-paired` to revoke stored tokens.
+Power on and choose **Connect**. The bridge prints a six-character pairing code on its console the first time a client connects. Enter it on the Apple II. The 8-bit client stores the resulting bearer token on its boot disk. The IIgs client keeps it in RAM for reconnects during that boot and asks for a new code after reboot. Run with `--clear-paired` to revoke issued tokens.
 
 If you want Codex on the reverse of an existing physical disk while keeping the other client on side A, follow [docs/PHYSICAL-DISK.md](docs/PHYSICAL-DISK.md). There is deliberately no automatic real-disk writer.
 
@@ -89,7 +89,7 @@ The local slash commands are `/help`, `/new`, `/model`, and `/quit`. Esc or Ctrl
 
 ## Security boundary
 
-`--telnet` is for a trusted home LAN. Traffic, pairing codes, tokens, prompts, and replies are plaintext. Never port-forward it or expose it to the public internet. Possession of the disk token grants access to the configured Codex bridge, so treat the disk image like a key. Read [SECURITY.md](SECURITY.md) before enabling `workspace-write`.
+`--telnet` is for a trusted home LAN. Traffic, pairing codes, tokens, prompts, and replies are plaintext. Never port-forward it or expose it to the public internet. Possession of an 8-bit client's disk token grants access to the configured Codex bridge, so treat that disk image like a key. Read [SECURITY.md](SECURITY.md) before enabling `workspace-write`.
 
 ## Compatibility
 

@@ -59,7 +59,7 @@ EOT        = $04
 CMD_COLOR  = $01       ; in-band: next byte sets txtcolor (1 gray/2 white/3 white)
 CMD_BULLET = $02       ; in-band: draw the white reply bullet here
 CMD_QUIT   = $03       ; in-band: bridge says session over -> back to the menu
-CMD_TOKEN  = $05       ; in-band: bridge issues a device token; we store it to disk
+CMD_TOKEN  = $05       ; in-band: bridge issues a device token; retained for this boot
 CMD_HEADER = $0E       ; in-band: four CR-terminated header values follow
 HEADER_LINES = 4
 HEADER_ROWS = 6
@@ -70,16 +70,8 @@ DIAL_BUSY = 3
 DIAL_NO_CARRIER = 4
 DIAL_NO_ANSWER = 5
 
-; ---- token sector (device pairing): RWTS a reserved sector on the boot disk.
-;   RWTS is 8-bit DOS code, so the wrapper enters 6502 emulation mode around
-;   the call. Native 8-bit width alone is not enough on a real IIgs because
-;   some 6502 addressing semantics differ while E=0. Entry $BD00, the IOB/DCT
-;   bytes, and the boot slot/drive at $B7E9/$B7EA are identical to the 8-bit
-;   client (verified against Beneath Apple DOS) - do NOT change them.
-TOKBUF     = $9000     ; sector buffer (the free $9000-$95FF gap above the code)
-RWTS       = $BD00     ; DOS 3.3 RWTS entry (A=lo/Y=hi -> IOB)
-TOKTRK     = $12       ; reserved token track
-TOKSEC     = $0F       ; reserved token sector
+; ---- pairing token: retained in RAM for reconnects during this boot.
+TOKBUF     = $9000     ; length at +6, token bytes at +7
 
 ; ---- scrollback ring buffer (bank $02): each line = 80 cells of (char,color) ----
 BUF_BANK   = $02
@@ -128,6 +120,7 @@ start:
         stz     mus_rel
         stz     mus_relv
         stz     wake_done
+        stz     TOKBUF+6        ; no token in RAM until this boot pairs
 
         lda     #$C1
         sta     NEWVIDEO
@@ -663,58 +656,11 @@ session_start:
         and     #$08
         sta     dcd_active
 
-        ; auto-pair vs. bare probe. Do the RWTS token read FIRST, while the
-        ; bridge is still SILENT (require_pairing pushes nothing until it reads
-        ; a line from us). If we probed first, the bridge's synchronous
-        ; LOCKED-header reply would land during the ~100-200ms deaf RWTS read
-        ; and the SCC's 3-byte FIFO would drop it on real hardware - the user
-        ; would never see the prompt. token_read returns its result in carry and
-        ; tok_valid in Z; sccput/lda both CLOBBER those flags, so we consume them
-        ; to pick the branch BEFORE any transmit, and each case sends once.
-        ; The token helpers exit .a16/.i16 (they rep #$30 before rts).
-        lda     BORDERCOL
-        and     #$F0            ; DEBUG breadcrumb: DARK BLUE = before tok_init_dev
-        ora     #$02            ; (here .a8/.i8: 8-bit BORDERCOL store)
-        sta     BORDERCOL
-        jsr     tok_init_dev
-        .a16
-        .i16
-        sep     #$20            ; DEBUG breadcrumb: MEDIUM BLUE = before token_read
-        .a8                     ; (sep/rep + lda/and/ora/sta touch no CPU flag we need)
-        lda     BORDERCOL
-        and     #$F0
-        ora     #$06
-        sta     BORDERCOL
-        rep     #$20
-        .a16
-        jsr     token_read
-        sep     #$20            ; DEBUG breadcrumb: GREEN = token_read returned
-        .a8                     ; sep/rep/lda/and/ora/sta all PRESERVE carry, so
-        lda     BORDERCOL       ; token_read's carry survives for bcs below
-        and     #$F0
-        ora     #$0C
-        sta     BORDERCOL
-        rep     #$20
-        .a16
-        bcs     st_probe        ; RWTS read failed (write-protected/no disk)
-        jsr     tok_valid
-        php                     ; DEBUG breadcrumb: YELLOW = tok_valid returned
-        sep     #$20            ; lda/and/ora WOULD clobber tok_valid's Z, so
-        .a8                     ; php/plp bracket it to preserve Z for bne
-        lda     BORDERCOL
-        and     #$F0
-        ora     #$0E
-        sta     BORDERCOL
-        rep     #$20
-        .a16
-        plp
-        bne     st_probe        ; no/invalid token on disk: bare probe
-        ; valid token: present it as the FIRST line the bridge reads, so a
-        ; paired device skips the code prompt. The bridge answers with EOT +
-        ; the real header - no separate bare-CR probe needed.
-        sep     #$30
-        .a8
-        .i8
+        ; DOS RWTS calls from the native GS client are not reliable on real
+        ; hardware. Keep an issued token in RAM for reconnects during this boot,
+        ; but never touch the disk from the session path.
+        lda     TOKBUF+6
+        beq     st_probe
         ldx     #0
 st_snd: cpx     TOKBUF+6        ; +6 = stored token length
         beq     st_sndcr
@@ -727,9 +673,6 @@ st_sndcr:
         jsr     sccput
         bra     st_afterprobe
 st_probe:
-        sep     #$30            ; arrived here .a16/.i16 (token helper exit)
-        .a8
-        .i8
         lda     #$0D            ; session-open probe: the bridge answers with the
         jsr     sccput          ; LOCKED header (fresh/errored/unpaired disk)
 st_afterprobe:
@@ -788,7 +731,6 @@ mn_spin:
         jsr     send_line
         jsr     spinner
         jsr     recv_reply
-        jsr     token_flush     ; deferred token write, now that the bridge is idle
         jsr     bell_maybe      ; BEL semantics: ring once after a long think
         lda     quitflag        ; bridge sent CMD_QUIT during this reply?
         beq     main
@@ -1753,7 +1695,7 @@ rr_nocp:
         beq     rr_bullet
         cmp     #CMD_HEADER     ; 0x0E -> four-line header frame
         beq     rr_header
-        cmp     #CMD_TOKEN      ; 0x05 -> capture + persist a freshly issued token
+        cmp     #CMD_TOKEN      ; 0x05 -> retain a freshly issued token in RAM
         beq     rr_token
         cmp     #CMD_QUIT       ; 0x03 -> session over after this reply
         beq     rr_quit
@@ -1780,8 +1722,8 @@ rr_header:
         jsr     do_header
         bra     rr_next
 rr_token:
-        jsr     do_token        ; capture + persist a freshly issued token
-        .a16                    ; do_token exits .a16/.i16 (token_write reps)
+        jsr     do_token        ; retain it for reconnects during this boot
+        .a16                    ; do_token exits .a16/.i16
         .i16
         sep     #$30            ; back to recv_reply's 8-bit
         .a8
@@ -1925,134 +1867,13 @@ check_incoming:
 ci_x:
         rts
 
-; =====================================================================
-; token sector I/O - RWTS-read/write a reserved sector (T=$12 S=$0F) on the
-; boot disk to persist a device-pairing token across reboots. RWTS is a
-; monolithic 6502 DOS routine. We enter 6502 emulation mode for the call and
-; return to native mode before restoring the client's 16-bit convention.
-; The only unavoidably-deaf stretch is inside RWTS
-; itself, which can't be woven with rb_poll - see the report caveat.
-; Sector layout: magic "CDXTK1"(6) | len(1) | token(len) | csum(1).
-; csum = 8-bit sum (mod 256) of bytes [0 .. 6+len]. Byte-identical to the
-; 8-bit client so a token is portable between clients.
-; =====================================================================
-
-; Copy the boot slot/drive out of DOS's own primary IOB ($B7E9/$B7EA) so token
-; I/O targets the same physical device the client booted from. Exits .a16/.i16.
-tok_init_dev:
-        sep     #$30
-        .a8
-        .i8
-        lda     $B7E9           ; DOS boot slot (slot*16)
-        sta     iob_slot
-        lda     $B7EA           ; DOS boot drive
-        sta     iob_drive
-        rep     #$30
-        .a16
-        .i16
-        rts
-
-; RWTS-read the token sector into TOKBUF. Carry clear = success. Exits .a16/.i16.
-token_read:
-        sep     #$30
-        .a8
-        .i8
-        lda     #TOKTRK
-        sta     iob_trk
-        lda     #TOKSEC
-        sta     iob_sec
-        lda     #$01            ; command 1 = read
-        sta     iob_cmd
-        bra     rwts_call
-
-; RWTS-write TOKBUF to the token sector. Carry clear = success. Exits .a16/.i16.
-token_write:
-        sep     #$30
-        .a8
-        .i8
-        lda     #TOKTRK
-        sta     iob_trk
-        lda     #TOKSEC
-        sta     iob_sec
-        lda     #$02            ; command 2 = write
-        sta     iob_cmd
-        ; fall through (still .a8/.i8)
-rwts_call:
-        lda     #<iob
-        ldy     #>iob           ; A=lo/Y=hi -> IOB, per DOS 3.3 RWTS
-        sec
-        xce                     ; DOS 3.3 RWTS requires true 6502 semantics
-        jsr     RWTS
-        clc
-        xce                     ; back to 65816 native mode, still .a8/.i8
-        lda     iob_err         ; Z=1 if ok (0 = no error)
-        rep     #$30            ; rep preserves Z from the lda above
-        .a16
-        .i16
-        beq     rc_ok
-        sec
-        rts
-rc_ok:  clc
-        rts
-
-; tok_valid - after token_read, returns Z=1 (A=0) if TOKBUF holds valid magic
-; and a matching checksum; Z=0 (A=1) otherwise. Uses $06 scratch. Exits .a16/.i16.
-tok_valid:
-        sep     #$30
-        .a8
-        .i8
-        ldx     #0
-tv_m:   lda     TOKBUF,x
-        cmp     tok_magic,x
-        bne     tv_bad
-        inx
-        cpx     #6
-        bne     tv_m
-        lda     TOKBUF+6        ; len
-        beq     tv_bad          ; len 0 = invalid
-        cmp     #$29            ; > 40 ($28) = corrupt over-read; bound it
-        bcs     tv_bad          ; (do_token caps writes at 40)
-        sta     $06             ; scratch (known-safe ZP; = tmp2, dead here)
-        lda     #0
-        ldx     #0
-tv_s:   clc
-        adc     TOKBUF,x        ; sum magic+len: indices 0..6
-        inx
-        cpx     #7
-        bcc     tv_s
-        ldy     #0
-tv_t:   cpy     $06             ; summed all len token bytes?
-        beq     tv_done
-        clc
-        adc     TOKBUF+7,y      ; sum token: indices 7..6+len
-        iny
-        bne     tv_t
-tv_done:
-        ldy     $06
-        cmp     TOKBUF+7,y      ; compare to checksum byte at index 7+len
-        bne     tv_bad
-        lda     #0              ; Z=1: valid
-        bra     tv_exit
-tv_bad: lda     #1              ; Z=0: invalid
-tv_exit:
-        rep     #$30            ; rep preserves Z from the lda above
-        .a16
-        .i16
-        rts
-
-; do_token - a CMD_TOKEN frame is arriving: read the CR-terminated token, frame
-; it into TOKBUF in the on-disk layout, and RWTS-write it. getbyte polls rb_poll
-; so the ring can't overflow while we read. Exits .a16/.i16.
+; Keep an issued pairing token in RAM so reconnects during this boot do not
+; require another code. Real IIgs hardware proved DOS RWTS unsafe from this
+; native client, so disk persistence is deliberately left to the 8-bit client.
 do_token:
         sep     #$30
         .a8
         .i8
-        ldx     #0
-dt_wm:  lda     tok_magic,x     ; stamp the magic
-        sta     TOKBUF,x
-        inx
-        cpx     #6
-        bne     dt_wm
         ldx     #0
 dt_rt:  jsr     getbyte         ; getbyte enters/exits .a8/.i8
         and     #$7F
@@ -2060,71 +1881,18 @@ dt_rt:  jsr     getbyte         ; getbyte enters/exits .a8/.i8
         beq     dt_fin
         sta     TOKBUF+7,x
         inx
-        cpx     #$28            ; hard cap 40 (token is 32) - never overrun
+        cpx     #$28            ; hard cap 40 (token is 32)
         bcc     dt_rt
+dt_drain:
+        jsr     getbyte         ; malformed oversize frame: drain through CR
+        and     #$7F
+        cmp     #$0D
+        bne     dt_drain
 dt_fin: stx     TOKBUF+6        ; length
-        lda     #0
-        ldy     #0
-dt_ck1: clc
-        adc     TOKBUF,y        ; sum magic+len: indices 0..6
-        iny
-        cpy     #7
-        bcc     dt_ck1
-        ldy     #0
-dt_ck2: cpy     TOKBUF+6
-        beq     dt_ckd
-        clc
-        adc     TOKBUF+7,y      ; sum token: indices 7..6+len
-        iny
-        bne     dt_ck2
-dt_ckd: ldy     TOKBUF+6
-        sta     TOKBUF+7,y      ; store checksum at index 7+len
-        lda     #1              ; DEFER the RWTS write: doing it here (inside
-        sta     token_pending   ; recv_reply) would go deaf ~150ms and drop the
-                                ; trailing EOT. token_flush writes it at idle.
         rep     #$30            ; restore do_token's .a16/.i16 exit contract
         .a16
         .i16
         rts
-
-; token_flush - perform the deferred token write. Called from the main loop
-; right after recv_reply, when the bridge is silent (waiting for the user's
-; next line), so the RWTS deaf window can't eat any serial. Enters .a8/.i8 and
-; MUST exit .a8/.i8 for the code after it; token_write does its own sep/rep and
-; returns .a16/.i16, so we sep back down before returning.
-token_flush:
-        lda     token_pending
-        beq     tf_done         ; nothing pending: return .a8/.i8, width untouched
-        jsr     token_write     ; RWTS write; ignore carry; returns .a16/.i16
-        .a16
-        .i16
-        sep     #$30            ; back to the caller's .a8/.i8
-        .a8
-        .i8
-        stz     token_pending
-tf_done:
-        rts
-
-tok_magic:  .byte   "CDXTK1"
-
-; DOS 3.3 RWTS IOB (17 bytes) + DCT. Slot/drive are patched from DOS's own
-; boot IOB by tok_init_dev. Layout per Beneath Apple DOS ch.6. This is data -
-; control never falls into it (do_token rts's above).
-iob:        .byte   $01         ; +0  IOB type ($01)
-iob_slot:   .byte   $60         ; +1  slot*16 (patched at boot)
-iob_drive:  .byte   $01         ; +2  drive (patched at boot)
-iob_vol:    .byte   $00         ; +3  volume expected (0 = any)
-iob_trk:    .byte   TOKTRK      ; +4  track
-iob_sec:    .byte   TOKSEC      ; +5  sector
-            .word   dct         ; +6  DCT pointer
-            .word   TOKBUF      ; +8  data buffer
-            .word   $0000       ; +10 unused
-iob_cmd:    .byte   $01         ; +12 command 1=read 2=write
-iob_err:    .byte   $00         ; +13 error code (return)
-            .byte   $00         ; +14 last volume (return)
-            .byte   $60         ; +15 last slot (return)
-            .byte   $01         ; +16 last drive (return)
-dct:        .byte   $00,$01,$EF,$D8  ; device characteristics table
 
 ; =====================================================================
 ; cout - print A with cursor handling; CR = newline+scroll
@@ -3126,7 +2894,6 @@ dialres:    .res 1          ; dial window: 0 silence, 1 CONNECT, 2 failure
 dcd_active: .res 1          ; nonzero if DCD was asserted at session start
 dcd_trust:  .res 1          ; DCD has read "no carrier" once: the pin is live
 muteflag:   .res 1          ; Ctrl-C during recv_reply: drain without drawing
-token_pending: .res 1       ; do_token framed a token: token_flush writes it at idle
 mdm_c1:     .res 1          ; dial window: first char of current rx line
 mdm_line:   .res 11         ; uppercase modem result prefix, NUL-terminated
 dcol:       .res 1          ; dial window: echo column on row 22
