@@ -40,6 +40,13 @@ def test_gs_buffers_the_complete_header_before_drawing_it():
     assert "inc     hdr_pos\n        lda     hdr_pos\n        tay" in reader
 
 
+def test_gs_glyph_drawing_keeps_draining_the_scc():
+    source = Path("apple2gs/codex.s").read_text()
+    putchar = source.split("putchar:", 1)[1].split("draw_bullet:", 1)[0]
+
+    assert "pc_row:\n        jsr     rb_poll" in putchar
+
+
 def test_escape_and_ctrl_c_share_one_inflight_interrupt_path():
     for source in SOURCES:
         text = source.read_text()

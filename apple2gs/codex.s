@@ -2156,6 +2156,7 @@ put_common:                     ; entry with glyphptr preset, still .a16
         sta     coloff
         ldx     #8
 pc_row:
+        jsr     rb_poll         ; header drawing must not overrun the 3-byte SCC FIFO
         ldy     #0
         lda     (glyphptr),y
         pha
