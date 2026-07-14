@@ -47,6 +47,12 @@ def codex_version(codex_bin: str = "codex") -> tuple[int, int, int] | None:
     return _parse_codex_version(result.stdout)
 
 
+def _redact_stderr(value: str) -> str:
+    value = re.sub(r"(?i)(bearer\s+)[^\s]+", r"\1[redacted]", value)
+    value = re.sub(r"(?i)(token\s*[=:]\s*)[^\s]+", r"\1[redacted]", value)
+    return value
+
+
 def claude_version(claude_bin: str = "claude") -> str:
     """`claude --version` -> just the version number (cached), or '?' on failure."""
     if claude_bin not in _version_cache:
@@ -224,6 +230,117 @@ class CodexBackend(Backend):
     def reset(self) -> None:
         self._thread_id = None
 
+    def begin_turn(self) -> None:
+        with self._state_lock:
+            self._cancelled = False
+            self._cancel_event.clear()
+
+    def cancel(self) -> None:
+        with self._state_lock:
+            self._cancelled = True
+            self._cancel_event.set()
+            proc = self._proc
+        if proc is not None:
+            _kill_process_group(proc)
+
+    def stream(self, user_text: str) -> Iterator[str]:
+        resumed = self._thread_id is not None
+        self._last_duration_ms = None
+        self._last_output_tokens = None
+        started = time.monotonic()
+        try:
+            proc = subprocess.Popen(
+                self._build_cmd(),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                cwd=self._cwd,
+                start_new_session=True,
+            )
+        except FileNotFoundError:
+            print(
+                f"[bridge] codex binary not found: {self._bin!r}",
+                file=sys.stderr,
+                flush=True,
+            )
+            yield "\n[Codex CLI not found on the host]"
+            return
+
+        with self._state_lock:
+            self._proc = proc
+            cancelled_during_start = self._cancel_event.is_set()
+        if cancelled_during_start:
+            _kill_process_group(proc)
+
+        err_parts: list[str] = []
+
+        def _drain_err(p=proc) -> None:
+            try:
+                if p.stderr is not None:
+                    for chunk in iter(lambda: p.stderr.read(4096), ""):
+                        err_parts.append(chunk)
+            except Exception:
+                pass
+
+        err_thread = threading.Thread(target=_drain_err, daemon=True)
+        err_thread.start()
+
+        try:
+            if proc.stdin is not None:
+                try:
+                    proc.stdin.write(user_text)
+                    proc.stdin.close()
+                except BrokenPipeError:
+                    pass
+
+            assert proc.stdout is not None
+            for raw in proc.stdout:
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    print(
+                        "[bridge] ignored malformed Codex JSONL event",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    continue
+                yield from self._render_event(event)
+
+            proc.wait()
+            err_thread.join(timeout=1.0)
+            stderr = "".join(err_parts).strip()
+            if self._cancelled:
+                return
+            if proc.returncode not in (0, None):
+                if stderr:
+                    print(
+                        f"[bridge] codex stderr: {_redact_stderr(stderr)}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                if resumed:
+                    self._thread_id = None
+                    yield (
+                        "\n[Codex could not resume this thread; "
+                        "next prompt starts a fresh thread]"
+                    )
+                elif re.search(
+                    r"not authenticated|codex login|authentication", stderr, re.I
+                ):
+                    yield "\n[Codex is not logged in; run codex login on the host]"
+                else:
+                    yield f"\n[Codex exited {proc.returncode}; see the bridge console]"
+        finally:
+            self._last_duration_ms = round((time.monotonic() - started) * 1000)
+            with self._state_lock:
+                if self._proc is proc:
+                    self._proc = None
+
     def header(self) -> tuple[str, ...]:
         version = codex_version(self._bin)
         label = ".".join(map(str, version)) if version else "?"
@@ -264,6 +381,14 @@ class CodexBackend(Backend):
             usage = event.get("usage") or {}
             self._last_output_tokens = usage.get("output_tokens")
         elif etype in ("turn.failed", "error"):
+            error = event.get("error") or {}
+            detail = error.get("message") if isinstance(error, dict) else error
+            if detail:
+                print(
+                    f"[bridge] Codex {etype}: {_redact_stderr(str(detail))}",
+                    file=sys.stderr,
+                    flush=True,
+                )
             yield "\n[Codex request failed; see the bridge console]"
         elif etype in ("item.started", "item.completed"):
             item = event.get("item") or {}
@@ -276,6 +401,26 @@ class CodexBackend(Backend):
                 summary = self._tool_summary(item)
                 if summary:
                     yield f"[{summary}]\n"
+            if kind not in {
+                "agent_message",
+                "reasoning",
+                "command_execution",
+                "file_change",
+                "web_search",
+                "mcp_tool_call",
+                "todo_list",
+            }:
+                print(
+                    f"[bridge] ignored unknown Codex item: {kind!r}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+        else:
+            print(
+                f"[bridge] ignored unknown Codex event: {etype!r}",
+                file=sys.stderr,
+                flush=True,
+            )
 
     def _tool_summary(self, item: dict) -> str | None:
         kind = item.get("type")
