@@ -180,6 +180,7 @@ def make_backend(cols: int, args) -> CodexBackend:
 
 EOT = b"\x04"  # app mode: marks end of a reply so the client stops its spinner
 CMD_TOKEN = b"\x05"  # app mode: bridge issues a device token; client stores it
+CMD_INTERRUPT = b"\x06"  # app mode: style the following interruption line
 
 # Lines a WiFi modem volunteers ON THE WIRE around a (re)connect - the
 # WiModem announces "reconnected" into the session itself. Anything here,
@@ -441,8 +442,8 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode,
                 term.write_line("  " + out_line if out_line else "")
         if interrupted:
             term.write_line("")
-            term.write(b"\x01\x01")      # gray
-            term.write_line("* Interrupted by user")
+            term.write(CMD_INTERRUPT)
+            term.write_line("Interrupted by user")
         elif not worker_failed.is_set():
             foot = backend.footer()
             if foot:

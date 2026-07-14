@@ -287,6 +287,11 @@ def test_noncooperative_backend_has_bounded_interrupt_cleanup(capsys):
         assert ch.wait_for_tx(b"Interrupted by user", 5), (
             "session waited indefinitely for a noncooperative backend")
         assert ch.wait_for_tx(bridge.EOT, 1), "interrupted reply omitted EOT"
+        out = ch.snapshot()
+        marker = out.index(bridge.CMD_INTERRUPT)
+        message = out.index(b"Interrupted by user")
+        assert marker < message < out.index(bridge.EOT, message)
+        assert b"* Interrupted by user" not in out
         assert "reply worker did not stop after cancellation" in capsys.readouterr().out
     finally:
         stop_session(ch, session, backend)
