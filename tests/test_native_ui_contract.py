@@ -21,6 +21,14 @@ def test_native_clients_show_codex_working_copy():
         assert '"s * esc to interrupt)"' in text
 
 
+def test_menu_title_is_centered_for_its_29_character_width():
+    gs = Path("apple2gs/codex.s").read_text()
+    eight_bit = Path("apple2/codex2.s").read_text()
+
+    assert gs.count("TEXT    str_welcome, 25, 16, 2") == 2
+    assert "sbc     #29" in eight_bit
+
+
 def test_escape_and_ctrl_c_share_one_inflight_interrupt_path():
     for source in SOURCES:
         text = source.read_text()

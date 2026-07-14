@@ -71,8 +71,9 @@ DIAL_NO_CARRIER = 4
 DIAL_NO_ANSWER = 5
 
 ; ---- token sector (device pairing): RWTS a reserved sector on the boot disk.
-;   RWTS is 8-bit DOS code (never touches M/X or the e-bit), so the token
-;   helpers run in native 8-bit mode (sep #$30). Entry $BD00, the IOB/DCT
+;   RWTS is 8-bit DOS code, so the wrapper enters 6502 emulation mode around
+;   the call. Native 8-bit width alone is not enough on a real IIgs because
+;   some 6502 addressing semantics differ while E=0. Entry $BD00, the IOB/DCT
 ;   bytes, and the boot slot/drive at $B7E9/$B7EA are identical to the 8-bit
 ;   client (verified against Beneath Apple DOS) - do NOT change them.
 TOKBUF     = $9000     ; sector buffer (the free $9000-$95FF gap above the code)
@@ -182,7 +183,7 @@ start:
         sta     BORDERCOL
         jsr     snd_init        ; DOC: load the waveform, oscillators halted
 
-        TEXT    str_welcome, 22, 16, 2
+        TEXT    str_welcome, 25, 16, 2
         TEXT    str_ver, 28, 17, 3
         TEXT    str_by, 31, 18, 3
 
@@ -196,7 +197,7 @@ menu_screen:
         .a8
         .i8
         jsr     clear_screen
-        TEXT    str_welcome, 22, 16, 2
+        TEXT    str_welcome, 25, 16, 2
         TEXT    str_ver, 28, 17, 3
         TEXT    str_by, 31, 18, 3
         lda     wake_done       ; the wake gesture greets the FIRST menu
@@ -1927,10 +1928,9 @@ ci_x:
 ; =====================================================================
 ; token sector I/O - RWTS-read/write a reserved sector (T=$12 S=$0F) on the
 ; boot disk to persist a device-pairing token across reboots. RWTS is a
-; monolithic 8-bit DOS routine (6502 opcodes; it never runs rep/sep, so M/X
-; stay 8-bit across it) - we enter these helpers in native 8-bit mode
-; (sep #$30) and rep #$30 back to the client's 16-bit convention before rts,
-; per the 65816 width rule. The only unavoidably-deaf stretch is inside RWTS
+; monolithic 6502 DOS routine. We enter 6502 emulation mode for the call and
+; return to native mode before restoring the client's 16-bit convention.
+; The only unavoidably-deaf stretch is inside RWTS
 ; itself, which can't be woven with rb_poll - see the report caveat.
 ; Sector layout: magic "CDXTK1"(6) | len(1) | token(len) | csum(1).
 ; csum = 8-bit sum (mod 256) of bytes [0 .. 6+len]. Byte-identical to the
@@ -1980,7 +1980,11 @@ token_write:
 rwts_call:
         lda     #<iob
         ldy     #>iob           ; A=lo/Y=hi -> IOB, per DOS 3.3 RWTS
-        jsr     RWTS            ; 6502 code: returns with M/X still 8-bit
+        sec
+        xce                     ; DOS 3.3 RWTS requires true 6502 semantics
+        jsr     RWTS
+        clc
+        xce                     ; back to 65816 native mode, still .a8/.i8
         lda     iob_err         ; Z=1 if ok (0 = no error)
         rep     #$30            ; rep preserves Z from the lda above
         .a16

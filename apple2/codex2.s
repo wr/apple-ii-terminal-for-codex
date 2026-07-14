@@ -563,7 +563,7 @@ menu_screen:
         ; title + subtitle, centered
         lda     width
         sec
-        sbc     #35
+        sbc     #29
         lsr
         tax
         lda     #<str_title
