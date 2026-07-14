@@ -1,44 +1,40 @@
 # Security
 
-This project bridges a real `claude` CLI to an Apple II over a serial line or your LAN. In code mode that CLI reads and writes files and runs commands on the host, so a few things are worth being plain about.
-
-## Supported versions
-
-| Version | Supported |
-|---|---|
-| 1.1.x | Yes |
-| 1.0.x | No |
-| < 1.0 | No |
-
-Fixes land on the latest 1.1.x release.
+Apple II Terminal for Codex connects an Apple II to a local Codex CLI. The bridge can expose a repository and shell-capable agent over serial or plaintext TCP, so its boundary needs to be explicit.
 
 ## Reporting a vulnerability
 
-Open a [GitHub issue](https://github.com/wr/apple-ii-terminal-for-claude-code/issues). For anything you'd rather not post in the open, use GitHub's private ["Report a vulnerability"](https://github.com/wr/apple-ii-terminal-for-claude-code/security/advisories/new) advisory flow, or email the maintainer at media [at] wells [dot] ee. I'll respond as soon as I can — this is a hobby project, so no formal SLA.
+Use GitHub's private **Report a vulnerability** flow for the repository, or email media [at] wells [dot] ee. Public issues are fine for non-sensitive bugs. This is a hobby project with no formal response SLA.
 
-## Security model
+## Network exposure
 
-The bridge is one Python script you run on your own machine. It has no accounts, no server, and no telemetry. What matters is who can reach it and what it does with what it hears.
+`--telnet` listens on TCP port 6401 and binds to `0.0.0.0` by default so a WiFi modem can reach it. Telnet does not encrypt pairing codes, device tokens, prompts, or replies. Use it only on a trusted home LAN. Never port-forward the bridge or expose any mode to the public internet.
 
-### Network exposure
+Use `--host 127.0.0.1` for emulator-only access. A direct `--serial` connection avoids LAN exposure. `--no-pair` removes the access gate and is only suitable for an isolated network or direct local test.
 
-`--telnet` makes the bridge listen for a WiFi modem or TCP client (port 6400). In code mode that hands an accepted caller a `claude` session — effectively a shell — on the host. Telnet does not encrypt pairing codes, tokens, prompts, or replies. A caller who captures an unused code or a valid token may be able to replay it. **Run the listener only on a home LAN you trust. Never port-forward it or bind it to a public interface.** Use `--host 127.0.0.1` to keep it local, or a serial cable (`--serial`) to avoid the network entirely.
+## Pairing token
 
-### The pairing gate
+The first native-client pairing exchanges a six-character console code for a device token. That token is a bearer credential: possession grants access without the code.
 
-A listening bridge is gated by a pairing code before any session proceeds (`--telnet` only; disable with `--no-pair` on an isolated network):
+- The Apple II stores the plaintext token in a reserved sector of its boot disk.
+- The host stores only its SHA-256 hash, first-seen IP, and pairing time in `$XDG_CONFIG_HOME/codex-ii-terminal/paired.json`, or `~/.config/codex-ii-terminal/paired.json` when XDG is unset.
+- Telnet carries the code and token in plaintext.
+- Run with `--clear-paired` to revoke all issued tokens. Rebuild or erase the client disk before giving it to someone else.
 
-- **On-demand codes.** By default the bridge creates a 6-character code (uppercase letters and digits, with look-alikes dropped; about 8.9e8 combinations) when an unpaired source IP first needs one. It prints the code on the bridge console, then the caller sends it over the plaintext connection. The generated code remains valid and replayable from that source IP until a successful pairing consumes it. Source IP is a throttle and code-assignment key, not device identity.
-- **Shared pinned codes.** `--pair-code` fixes one code for every caller instead. Letters are case-insensitive. A pinned code is not consumed after use.
-- **Retry limits.** The first unrecognized token-shaped credential from each source IP in a bridge run is treated as a stale token and does not spend a strike, in either native (`--app`) or raw telnet mode. After that, the first 3 wrong pairing-code guesses have no delay. Later misses sleep for 2 seconds, 4 seconds, then at most 8 seconds per attempt. The hard limit is 10 code guesses per source IP per bridge run. Strike counts survive reconnects during that run.
-- **Native token persistence.** With `--app`, a successful code exchange mints a token and consumes a generated code. The native client stores the plaintext token on its boot disk and presents it on later connects; possession of that token grants access from any source IP. A valid-token reconnect neither needs nor prints a code.
-- **Raw telnet has no token persistence.** Without `--app`, the bridge does not issue a token. A raw terminal must enter the current console code for each new session.
-- **Revocation**: `--clear-paired` revokes every stored token credential.
+Treat `CODEX.dsk`, its FloppyEmu copy, and any physical floppy containing it like house keys.
 
-Ongoing pairing/hardening work is tracked separately; this file describes what ships today.
+## Codex boundary
 
-### What's logged and stored
+The bridge does not receive, store, or transmit Codex credentials or an API key. It starts the installed `codex` executable. Codex owns authentication and retains its normal local session data.
 
-- **Prompts print to the console.** Every line you type from the Apple II is echoed to the bridge's own stdout so you can watch the session. Replies are logged as metadata only (timing and line count), not their text.
-- **Pairing records contain a hash and metadata.** For each issued token, the bridge stores its SHA-256, first-seen IP, and pairing time in schema v2. The path is `$XDG_CONFIG_HOME/claude-ii-terminal/paired.json`, falling back to `~/.config/claude-ii-terminal/paired.json` when XDG is unset. Writes use a temporary file and atomic replace. The newly created leaf pairing directory and file request modes `0700` and `0600`; existing path modes are not repaired. Delete the file, or run `--clear-paired`, to revoke every stored token.
-- **The token itself lives in plaintext on the Apple II disk** (written to a reserved sector so the client can auto-present it on reconnect). Anyone with physical or disk-image access to that floppy/SD card can extract it — this is an accepted risk of a client with no secure storage of its own; treat the disk like a house key.
+The required `--workdir` selects an existing Git repository. The default `--sandbox workspace-write` allows Codex to edit files and run commands only within Codex's sandbox boundary. Use `--sandbox read-only` for inspection-only sessions.
+
+The subprocess uses `approval_policy=never`. An Apple II cannot service a host approval prompt, so operations outside the selected sandbox fail instead of waiting invisibly or gaining broader authority.
+
+## Local data and console output
+
+Every Apple II prompt prints on the host bridge console. Reply content travels over the selected transport. Codex may keep its own session records and other local state according to the installed CLI's behavior. Do not enter secrets that should not appear on the bridge console, wire, terminal screen, or Codex session history.
+
+## Supported versions
+
+Security fixes target the latest release. Codex CLI 0.144.1 is the minimum supported host version.
