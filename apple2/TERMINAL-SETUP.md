@@ -130,6 +130,9 @@ If you have an ESP-based WiFi modem (Zimodem/RetroWiFi style) or an Uthernet II:
    `--telnet-negotiate` to the bridge so it answers the telnet option handshake
    and its negotiation bytes don't show up as garbage.
 
+Raw terminal programs do not store the native client's token, so they must
+enter the code shown on the bridge console for each new session.
+
 The bridge listens for one connection at a time. Reconnect and it picks up the
 next caller.
 

@@ -18,11 +18,12 @@ Device pairing that survives reboots, plus real turn cancellation and CI.
   the bridge hands the client a private device token, which it saves to a
   reserved sector on its boot disk and presents automatically on every future
   connect — so a paired Apple II never needs the code again, even across
-  reboots. The host stores only a SHA-256 of the token, never the token itself.
-- **Per-device pairing codes.** By default each connecting IP gets its own
-  code, printed to the bridge console the moment that device connects, so a
-  code seen for one device can't enroll another. `--pair-code` still pins one
-  shared code for everyone.
+  reboots. The host stores the token's SHA-256 plus first-seen IP and pairing
+  time, never the token itself.
+- **Per-source-IP pairing codes.** By default the bridge creates a code when an
+  unpaired source IP needs it and prints it on the bridge console. A generated
+  code is discarded after successful use. `--pair-code` still pins one shared
+  code for everyone.
 - **Real Ctrl-C cancellation** of an in-flight turn, and a `--idle-timeout` so
   an unpaired or idle peer can't hold the single listener slot open.
 - A tested-model **compatibility matrix** (`docs/COMPATIBILITY.md`) and a

@@ -1,8 +1,27 @@
 # Design: disk-stored device token replaces IP-based pairing
 
 Date: 2026-07-13
-Status: approved (design), pending implementation plan
+Status: implemented
 Scope: `bridge/`, `apple2gs/claude.s`, `apple2/claude2.s`, `apple2gs/build.sh`
+
+## Implementation amendment
+
+Later pairing changes assign generated human codes per source IP and print one
+only when an unpaired caller needs it. A successful pairing consumes a generated
+code; a pinned `--pair-code` remains shared. This source-IP key limits code reuse
+and retries but does not establish device identity. An intercepted unused code
+can still be replayed from the same source IP.
+
+Native `--app` clients exchange a successful code for the token described below.
+Raw telnet clients receive no token and must enter a code each session. Telnet is
+plaintext, so it does not protect codes, tokens, prompts, or replies from a LAN
+observer. Possession of a stored token is the credential; it is not proof of a
+particular physical device.
+
+The implemented stale-token fallback also differs from the original flow below:
+an unrecognized 32-character token-shaped value prompts for the current code but
+does not consume a guess strike. The rest of this document records the approved
+token-storage design and should be read with this amendment.
 
 ## Problem
 
@@ -34,10 +53,10 @@ proves nothing.
 
 - Confidentiality of the token *at rest on the Apple II disk*. It is stored
   plaintext; physical access to the disk/SD is explicitly an accepted risk
-  (trusted-LAN, physical Apple IIs). The token's secrecy protects the network
-  path, not the medium.
-- Per-device selective revoke in v1 (all-or-nothing `--clear-paired` ships;
-  metadata is stored to enable per-device revoke later — see Future work).
+  (trusted-LAN, physical Apple IIs). Telnet also provides no confidentiality on
+  the network path, as the implementation amendment notes.
+- Per-token selective revoke in v1 (all-or-nothing `--clear-paired` ships;
+  metadata is stored to enable per-token revoke later — see Future work).
 - Token storage for non-native clients. A raw `telnet` user has no disk to write
   to and just types the code each session.
 
@@ -128,10 +147,12 @@ the existing lockout.
   `CMD_TOKEN` frame before the paired ack.
 - Persistence: `paired.json` becomes
   `{"v": 2, "devices": [{"token_sha256": "...", "first_ip": "...", "paired_at": <epoch>}]}`.
-  Written at mode `0600` in a dir created `0700`, via temp-file + `os.replace`
-  (atomic). Loader ignores unknown/legacy shapes (old v1 IP list → dropped on
-  next write; those strings never match a real hash, so they are inert until
-  then).
+  The path is `$XDG_CONFIG_HOME/claude-ii-terminal/paired.json`, with a
+  `~/.config` fallback. New directories and files request `0700` and `0600`;
+  existing path modes are not repaired. Writes use a temporary file plus atomic
+  `os.replace`. The loader ignores unknown or legacy shapes (old v1 IP list →
+  dropped on next write; those strings never match a real hash, so they are
+  inert until then).
 - `--clear-paired` clears the device store (revokes every device). `--no-pair`
   unchanged. Token exchange is gated to `--app` sessions.
 - Logging: keep logging the peer IP and the human code (operator console), per
@@ -222,16 +243,17 @@ along in the same branch as a separate commit:
 
 - Token is 160-bit unguessable; online guessing is infeasible and still bounded
   by the existing per-peer lockout.
-- Bridge stores only `sha256(token)`; a leaked `paired.json` yields no usable
-  credential and no IPs-as-trust.
+- Bridge stores `sha256(token)` plus first-IP and pairing-time metadata; a leaked
+  `paired.json` yields no plaintext usable credential and no IPs-as-trust.
 - Constant-time comparison; token never logged.
-- Trust is per-device and revocable; no address is ever trusted.
+- Trust requires possession of a stored token and is revocable; no address is
+  accepted as persistent proof of access.
 - Accepted residual: plaintext token on the Apple II disk (physical-access
   threat, explicitly out of scope).
 
 ## Future work (not in v1)
 
-- Per-device revoke using the stored `first_ip` / `paired_at` metadata (e.g.
+- Per-token revoke using the stored `first_ip` / `paired_at` metadata (e.g.
   `--revoke <ip-or-index>`).
 - Optional token rotation on a schedule.
 - IIgs BRAM as a secondary store so a GS keeps its token across disk swaps.

@@ -3,8 +3,8 @@
 Covers the protections added for the "weak pairing" hardening pass:
   * higher-entropy, Apple II-typeable pairing codes
   * per-peer wrong-code lockout with exponential backoff + a hard guess cap
-  * per-device pairing codes (each source IP gets its own, or a pinned code)
-  * revocation of remembered (paired) peers
+  * per-source-IP pairing codes (or one pinned code shared by every caller)
+  * revocation of stored token credentials
   * bounded input length on the terminal read path
 
 No emulator, no network: a FakeChannel stands in for the Apple II and the
@@ -25,6 +25,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bridge
 from bridge import PairingManager, gen_pair_code, _PAIR_ALPHABET
 from terminal import Terminal, TermConfig
+
+
+def test_parse_args_normalizes_pinned_pair_code():
+    args = bridge.parse_args(["--telnet", "--pair-code", "abc234"])
+    assert args.pair_code == "ABC234"
 
 
 # --------------------------------------------------------------------------- #

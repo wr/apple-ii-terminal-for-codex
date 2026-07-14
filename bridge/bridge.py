@@ -481,11 +481,12 @@ class PairingManager:
 
     A --telnet bridge in code mode hands anyone who can reach it a `claude`
     CLI running on this machine, so an unpaired caller must type the code
-    printed at startup before the session proceeds. This bundles the brakes:
+    printed on the bridge console before the session proceeds. This bundles
+    the brakes:
 
-      * a per-device pairing code: a user-set --pair-code is shared by all
-        callers, otherwise each source IP gets its own code, minted on first
-        sight and printed to the bridge console when that device connects,
+      * a per-source-IP pairing code: a user-set --pair-code is shared by all
+        callers, otherwise each source IP gets its own code, minted and printed
+        when an unpaired caller first needs it,
       * per-peer exponential backoff and a hard guess cap (no brute force),
       * a persisted set of already-paired device token hashes (a reconnect
         presents its token instead of re-typing the code).
@@ -526,10 +527,9 @@ class PairingManager:
         return code
 
     def consume_code(self, peer) -> None:
-        """A generated code is single-use: drop it the moment it mints a token,
-        so it can never enroll a second device. The next caller from this IP
-        gets a fresh code. A pinned --pair-code is explicitly shared, so it is
-        left in place."""
+        """A generated code is single-use: drop it after a successful pairing.
+        The next caller from this IP gets a fresh code. A pinned --pair-code is
+        explicitly shared, so it is left in place."""
         if not self.pinned:
             self._codes.pop(peer or "?", None)
 
@@ -959,8 +959,8 @@ def parse_args(argv=None):
         epilog="SECURITY: --telnet exposes a Claude session (in code mode, a\n"
                "shell on this host) to your network. It is meant for a TRUSTED\n"
                "HOME LAN only - never port-forward it or bind it to a public\n"
-               "interface. Callers are gated by a per-device pairing code with\n"
-               "attempt lockout; --no-pair removes that gate (trusted,\n"
+               "interface. Callers are gated by a per-source-IP pairing code\n"
+               "with attempt lockout; --no-pair removes that gate (trusted,\n"
                "isolated networks only).")
 
     tr = p.add_mutually_exclusive_group()
@@ -981,12 +981,12 @@ def parse_args(argv=None):
                         "LAN; set to a specific IP or 127.0.0.1 to narrow it)")
     p.add_argument("--port", type=int, default=6400, help="telnet port (default 6400)")
     p.add_argument("--pair-code", default="",
-                   help="fix ONE pairing code for every caller (telnet default: "
-                        "a per-device code, shown on the console when each "
-                        "device connects; see --no-pair)")
+                   help="fix one shared pairing code for every caller; letters "
+                        "are case-insensitive (telnet default: a per-source-IP "
+                        "code shown when an unpaired caller needs it)")
     p.add_argument("--clear-paired", action="store_true",
-                   help="forget all remembered (paired) devices at startup, "
-                        "forcing every caller to re-pair")
+                   help="forget all stored token credentials at startup, "
+                        "forcing token holders to re-pair")
     p.add_argument("--no-pair", action="store_true",
                    help="telnet: skip the pairing gate ENTIRELY - anyone who "
                         "can reach the host gets in (trusted networks only)")
@@ -1021,6 +1021,7 @@ def parse_args(argv=None):
     p.add_argument("--workdir", default=None, help="code mode: working directory")
 
     args = p.parse_args(argv)
+    args.pair_code = args.pair_code.upper()
     if not args.serial and not args.telnet and not args.connect:
         p.error("choose a transport: --serial PORT, --telnet, or --connect HOST:PORT")
     return args
@@ -1042,7 +1043,7 @@ def main(argv=None) -> int:
     pm = None
     if args.telnet and not args.no_pair:
         # An empty --pair-code means per-IP codes, minted and printed to the
-        # console the first time each device needs one (see code_for).
+        # console the first time an unpaired source IP needs one (see code_for).
         pm = PairingManager(args.pair_code)
         if args.clear_paired:
             n = pm.clear_paired()
