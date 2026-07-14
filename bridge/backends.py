@@ -109,10 +109,12 @@ class CodexBackend(Backend):
         cmd = [self._bin, "exec"]
         if self._thread_id:
             cmd.append("resume")
+        cmd += ["--json"]
+        if not self._thread_id:
+            # `codex exec resume` supports JSONL but not the parent command's
+            # --color option (Codex CLI 0.144.1).
+            cmd += ["--color", "never"]
         cmd += [
-            "--json",
-            "--color",
-            "never",
             "-c",
             f'sandbox_mode="{self._sandbox}"',
             "-c",

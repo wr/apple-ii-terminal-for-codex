@@ -48,8 +48,6 @@ def test_resume_argv_repeats_model_and_permissions():
         "exec",
         "resume",
         "--json",
-        "--color",
-        "never",
         "-c",
         'sandbox_mode="read-only"',
         "-c",
