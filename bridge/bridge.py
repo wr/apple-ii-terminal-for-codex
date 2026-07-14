@@ -310,49 +310,114 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode,
         fmt = StreamFormatter(cols - 2)
         lines: list[str] = []
         t0 = time.monotonic()
-        chunks: queue.Queue = queue.Queue()
+        poll_interval = 0.05
+        cancel_grace = 0.5
+        join_timeout = 3.0
+        drain_batch = 64
+        queue_capacity = 64
+        done = object()
+        chunks: queue.Queue = queue.Queue(maxsize=queue_capacity)
+        stop_pump = threading.Event()
+        worker_failed = threading.Event()
+
+        def _enqueue(item) -> bool:
+            while not stop_pump.is_set():
+                try:
+                    chunks.put(item, timeout=poll_interval)
+                    return True
+                except queue.Full:
+                    continue
+            return False
 
         def _pump(b=backend, u=user) -> None:
             try:
                 for chunk in b.stream(u):
-                    chunks.put(chunk)
-            except Exception as exc:
-                log(f"stream error: {exc}", peer=peer)
-                chunks.put("\n[bridge error: reply failed]")
+                    if not _enqueue(chunk):
+                        return
+            except BaseException as exc:
+                worker_failed.set()
+                log(f"stream error: {type(exc).__name__}: {exc}", peer=peer)
+                _enqueue("\n[bridge error: reply failed]")
             finally:
-                chunks.put(None)
+                _enqueue(done)
 
         worker = threading.Thread(target=_pump, daemon=True)
         worker.start()
         interrupted = False
         finished = False
+        cancel_requested = False
+        cancel_deadline = None
         next_poll = time.monotonic()
+
+        def _cancel_backend() -> None:
+            nonlocal cancel_requested
+            if not cancel_requested:
+                cancel_requested = True
+                backend.cancel()
+
         try:
             while True:
                 now = time.monotonic()
                 if now >= next_poll:
-                    next_poll = now + 0.05
                     if not interrupted and term.poll_ctrl_c():
                         interrupted = True
-                        backend.cancel()
+                        cancel_deadline = time.monotonic() + cancel_grace
+                        _cancel_backend()
+                    next_poll = time.monotonic() + poll_interval
                     if term.closed:
-                        backend.cancel()
+                        _cancel_backend()
                         return
-                wait = max(0.0, min(0.05, next_poll - time.monotonic()))
-                try:
-                    chunk = chunks.get(timeout=wait)
-                except queue.Empty:
+                deadline = next_poll
+                if cancel_deadline is not None:
+                    deadline = min(deadline, cancel_deadline)
+                if time.monotonic() >= deadline:
+                    if cancel_deadline is not None and deadline == cancel_deadline:
+                        break
                     continue
-                if chunk is None:
-                    finished = True
+
+                hit_batch_limit = True
+                for index in range(drain_batch):
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        hit_batch_limit = False
+                        break
+                    try:
+                        if index == 0:
+                            chunk = chunks.get(timeout=remaining)
+                        else:
+                            chunk = chunks.get_nowait()
+                    except queue.Empty:
+                        hit_batch_limit = False
+                        break
+                    if chunk is done:
+                        # One last channel poll closes the race between the normal
+                        # worker sentinel and a Ctrl-C already in transit.
+                        if not interrupted and term.poll_ctrl_c():
+                            interrupted = True
+                            cancel_deadline = time.monotonic() + cancel_grace
+                            _cancel_backend()
+                        next_poll = time.monotonic() + poll_interval
+                        if term.closed:
+                            _cancel_backend()
+                            return
+                        finished = True
+                        break
+                    lines.extend(fmt.feed(chunk))
+                if finished:
                     break
-                lines.extend(fmt.feed(chunk))
+                if hit_batch_limit:
+                    # A hot producer cannot monopolize the consumer: force the
+                    # next channel poll after each bounded drain batch.
+                    next_poll = time.monotonic()
         finally:
-            if not finished:
-                backend.cancel()
-            worker.join(timeout=3.0)
-            if worker.is_alive():
-                log("reply worker did not stop after cancellation", peer=peer)
+            stop_pump.set()
+            try:
+                if not finished:
+                    _cancel_backend()
+            finally:
+                worker.join(timeout=join_timeout)
+                if worker.is_alive():
+                    log("reply worker did not stop after cancellation", peer=peer)
         lines.extend(fmt.flush())
         send_header(term, backend)  # real header, drawn once by the client
         if lines:
@@ -364,7 +429,7 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode,
             term.write_line("")
             term.write(b"\x01\x01")      # gray
             term.write_line("* Interrupted by user")
-        else:
+        elif not worker_failed.is_set():
             foot = backend.footer()
             if foot:
                 term.write_line("")      # blank line before the footer
