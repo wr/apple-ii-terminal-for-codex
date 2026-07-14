@@ -117,6 +117,16 @@ def test_code_is_consumed_after_pairing(tmp_path):
     assert pm.code_for("10.0.0.7") != code   # consumed; a new code was minted
 
 
+def test_raw_telnet_code_is_consumed_after_pairing(tmp_path):
+    pm = PairingManager(store_path=str(tmp_path / "p.json"))
+    code = pm.code_for("10.0.0.8")
+    term = _FakeTerm([code], peer="10.0.0.8")
+
+    assert require_pairing(term, _args(app=False), pm) == "token"
+    assert bytes(CMD_TOKEN) not in term.written
+    assert pm.code_for("10.0.0.8") != code
+
+
 def test_looks_like_token_shape():
     assert _looks_like_token(gen_token()) is True
     assert _looks_like_token("hello") is False
