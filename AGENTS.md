@@ -26,7 +26,7 @@ The bridge sends **only** printable ASCII + CR/LF plus a small in-band control s
 Build everything (from `apple2gs/`):
 
 ```bash
-./build.sh                 # both clients -> inject into DOS 3.3 master -> CODEX.dsk (+ ~/Downloads copy for KEGS)
+./build.sh                 # both clients -> inject into DOS 3.3 master -> CODEX.dsk
 python3 gen_assets.py      # regenerate assets.inc (palettes, font, mascot, splash frames, sounds) only
 python3 preview.py assets.inc out.png   # render the GS session screen to PNG WITHOUT an emulator
 ../tools/install-sd.sh     # put the built image on a FloppyEmu SD card safely
@@ -44,7 +44,7 @@ python3 bridge.py --connect 127.0.0.1:6502 --app --cols 80 --workdir /path/to/gi
 - `--app` enables the native-client protocol (bridge stays silent, frames replies with `EOT` = `0x04`). Required for both native clients.
 - The bridge runs an already-installed and authenticated Codex CLI with workspace-write access inside the required `--workdir`; `--sandbox read-only` narrows it.
 - Serial hardware instead of KEGS: `--serial /dev/tty.usbserial-XXXX --baud 9600`.
-- A listening bridge (`--telnet`) locks itself behind a 6-character pairing code with per-source-IP retry limits and revocation. By default, `code_for` creates a code when an unpaired source IP needs it; successful use consumes that generated code. In `--app` mode the bridge also issues a 32-char client token via `CMD_TOKEN`, stores its hash plus first IP and pairing time under `$XDG_CONFIG_HOME/codex-ii-terminal/paired.json` (or the `~/.config` fallback), and accepts token possession on reconnect. Raw telnet gets no token and must enter a code each session. `--pair-code` fixes one case-insensitive shared code; `--no-pair` disables the gate. Telnet is plaintext, so captured unused codes or tokens can be replayed; this remains a trusted-LAN design.
+- A listening bridge (`--telnet`) locks itself behind a 6-character pairing code with per-source-IP retry limits and revocation. By default, `code_for` creates a code when an unpaired source IP needs it; successful use consumes that generated code. In `--app` mode the bridge also issues a 32-char client token via `CMD_TOKEN`, stores its hash plus first IP and pairing time under `$XDG_CONFIG_HOME/codex-ii-terminal/paired.json` (or the `~/.config` fallback), and accepts token possession on reconnect. The 8-bit client stores its token in the reserved boot-disk sector. The IIgs client keeps it in RAM for reconnects during that boot and pairs again after reboot. Raw telnet gets no token and must enter a code each session. `--pair-code` fixes one case-insensitive shared code; `--no-pair` disables the gate. Telnet is plaintext, so captured unused codes or tokens can be replayed; this remains a trusted-LAN design.
 
 ## The edit → see-it loop
 
@@ -64,13 +64,14 @@ python3 bridge.py --connect 127.0.0.1:6502 --app --cols 80 --workdir /path/to/gi
 
 The reply stream carries a few control bytes the native clients interpret (kept below `EOT`=`0x04`):
 
-- `0x01 <n>` — set text color: `1`=gray (reply/input), `2`=white accent (titles/status), `3`=white (your messages, inline code). The 8-bit client maps 3 → inverse video, others → normal.
+- `0x01 <n>` — set text color: `1`=gray (reply/input), `2`=light gray, `3`=white (titles, your messages, inline code). The 8-bit client maps 3 → inverse video, others → normal.
 - `0x02` — draw the reply bullet.
 - `0x03` — session over (bridge-side `/quit`): the client returns to its menu.
+- `0x05 <token> CR` — (bridge → client, app mode) a freshly issued device token. The 8-bit client persists it in the reserved disk sector; the IIgs retains it in RAM for the current boot.
+- `0x06` (`CMD_INTERRUPT`) — style the following interruption line: palette-isolated red on the IIgs and inverse video on 8-bit clients.
 - `0x0E` — header frame follows (4 CR-terminated lines: title, model, directory, permissions); sent in reply to the client's session-open CR probe and before each reply. An **unpaired** peer's probe is answered with a LOCKED header instead — that's how the pairing prompt reaches the screen (idle clients discard unsolicited text but always render headers).
-- `0x05 <token> CR` — (bridge → client, app mode) a freshly issued device token; the native client writes it to a reserved disk sector and auto-sends it as its first line on every future connect, so pairing survives reboots. `to_ascii` drops 0x05 from model text, so a reply can't forge it.
 
-These are injected in `bridge.py:run_app_session` (bullet, footer) and inside `render.py` (inline/fenced `code` spans → white). `to_ascii` deliberately **passes through bytes 1–3** rather than dropping them; the clients' `recv_reply`/`spinner` intercept them before `cout`. Color markers currently count toward wrap width, so code-dense lines may wrap a few columns early.
+These are injected in `bridge.py:run_app_session` (bullet, footer, interruption) and inside `render.py` (inline/fenced `code` spans → white). `to_ascii` deliberately **passes through bytes 1–3** rather than dropping them; the clients' `recv_reply`/`spinner` intercept them before `cout`. Color markers currently count toward wrap width, so code-dense lines may wrap a few columns early.
 
 ## The splash pipeline (GS)
 
@@ -86,7 +87,7 @@ Both clients:
 - **Zero page must dodge live Applesoft/DOS state.** Users Ctrl-Reset from the client back into BASIC; any ZP the client scribbles is corruption BASIC resumes with. $B1-$C8 is CHRGET (executable code — trashing it = "everything is a syntax error"), $D6 auto-RUN, $D8 ONERR. Known-safe: $06-$09, $FA-$FE.
 
 GS client (`codex.s`):
-- **640-mode palette is full at 4 slots** (black/gray/white/white). Another distinct color needs 320 mode, which halves to 40 columns.
+- **640-mode has four colors per scanline.** The session palette is black/gray/light-gray/white. Interrupt rows select a second SHR palette whose color 2 is red; their SCBs must move with the pixels during scrolls and be restored during scrollback redraws.
 - **Real hardware needs `scc_init`** — a IIgs never initializes the SCC at power-on (Apple TN #018); KEGS works without it.
 - **A real 8530 latches Rx overrun and can wedge the status poll** — `rb_poll` bounds its drain (4 bytes) and ends every pass with WR0 = $30 (Error Reset). Never write a raw `lda SCC_STAT` loop. Boot breadcrumbs remain in `start`: border flashes white→red→yellow→black through init; a stuck color names the hung stage.
 - **The real Sound GLU raises a busy bit around DOC cycles and drops accesses made while it's set** — all DOC access goes through `glu_wait`+`doc_wr`. KEGS doesn't model it. Also: DOC register `$E1` (osc enable) = oscillator count × 2.

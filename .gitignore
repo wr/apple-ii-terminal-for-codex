@@ -29,4 +29,5 @@ snap/
 
 # SDD scratch (subagent workspaces) and assembler listings
 .superpowers/
+docs/superpowers/
 *.lst

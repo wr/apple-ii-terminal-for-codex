@@ -25,7 +25,7 @@ jobs:
           python3 -m pip install -r requirements-test.txt -r bridge/requirements.txt
           python3 -m pip check
       - name: Bridge and renderer tests
-        run: python3 -m pytest -q bridge tests apple2gs/test_patch_assets.py
+        run: python3 -m pytest -q bridge tests apple2gs/test_codex_assets.py
 
   build:
     runs-on: ubuntu-latest
