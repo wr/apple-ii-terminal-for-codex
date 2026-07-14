@@ -1,4 +1,4 @@
-"""Turn Claude's modern, Unicode-happy Markdown into something an Apple II can
+"""Turn Codex's modern, Unicode-happy Markdown into something an Apple II can
 actually display: 7-bit ASCII, word-wrapped to 40 or 80 columns, no fancy glyphs.
 
 The Apple II character ROM has uppercase, lowercase (IIe/IIc/IIgs), digits, and
@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 import textwrap
 
-# Unicode -> ASCII substitutions for the characters Claude reaches for most.
+# Unicode -> ASCII substitutions for the characters Codex reaches for most.
 _SUBS = {
     "—": "--", "–": "-", "―": "--",
     "‘": "'", "’": "'", "‚": ",",
@@ -134,7 +134,7 @@ def wrap(text: str, width: int) -> list[str]:
 class StreamFormatter:
     """Incrementally format a streaming reply, emitting complete display lines.
 
-    Feed it raw chunks as they arrive from Claude; it buffers until it has whole
+    Feed it raw chunks as they arrive from Codex; it buffers until it has whole
     source lines, transforms the Markdown, sanitizes to ASCII, wraps to width,
     and returns the finished lines. Call `flush()` at the end for the tail.
     """

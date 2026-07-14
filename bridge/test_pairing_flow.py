@@ -153,7 +153,7 @@ def test_run_app_session_swallows_token_on_live_reconnect():
     # -> Connect, so the bridge stays mid-session (fresh is already False)
     # while the client re-runs session_start and auto-sends its stored token.
     # That token line must be swallowed (and the header re-sent, since the
-    # client cleared its screen) - never forwarded to Claude as a prompt.
+    # client cleared its screen) - never forwarded to Codex as a prompt.
     tok = gen_token()
     term = _FakeTerm(["hello", tok, "world", None])
     backend = _FakeBackend()

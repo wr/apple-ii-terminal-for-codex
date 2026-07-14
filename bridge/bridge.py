@@ -209,8 +209,8 @@ def send_header(term, backend) -> None:
 
 def run_app_session(term: Terminal, args, backend, backend_err, mode,
                     pair_via=None) -> None:
-    """Protocol for the native clients (apple2gs/claude.s and
-    apple2/claude2.s): the bridge stays silent (no banner, no prompts, no
+    """Protocol for the native clients (apple2gs/codex.s and
+    apple2/codex2.s): the bridge stays silent (no banner, no prompts, no
     echo) and just relays the backend's reply, then sends EOT. The Apple II
     client draws all the UI itself."""
     cols = args.cols
@@ -260,7 +260,7 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode,
             # line is consumed by require_pairing - but when the modem keeps the
             # TCP link up across a client-side Ctrl-C -> menu -> Connect, the
             # bridge is already mid-session and would otherwise forward the
-            # token to Claude as a prompt (and the client, having cleared its
+            # token to Codex as a prompt (and the client, having cleared its
             # screen, shows no header). Treat it like the session-open probe:
             # re-send the header so the reconnected client's UI repopulates,
             # and swallow the token. (Not gated on `fresh`: a live reconnect
@@ -465,7 +465,7 @@ def gen_token(n: int = _TOKEN_LEN) -> str:
 def _looks_like_token(s: str) -> bool:
     """A client with a stored device token auto-sends it as its first line.
     On an UNGATED transport (no require_pairing) that would otherwise become a
-    spurious Claude prompt, so run_app_session swallows a first line matching a
+    spurious Codex prompt, so run_app_session swallows a first line matching a
     token's exact shape (length + alphabet)."""
     return len(s) == _TOKEN_LEN and all(c in _PAIR_ALPHABET for c in s)
 
@@ -477,8 +477,8 @@ def token_hash(token: str) -> str:
 class PairingManager:
     """Access control for a listening bridge.
 
-    A --telnet bridge in code mode hands anyone who can reach it a `claude`
-    CLI running on this machine, so an unpaired caller must type the code
+    A --telnet bridge hands anyone who can reach it a `codex` CLI running on
+    this machine, so an unpaired caller must type the code
     printed on the bridge console before the session proceeds. This bundles
     the brakes:
 
@@ -762,7 +762,7 @@ class _IdleGuard:
     seconds pass with no byte received; every real byte resets the clock, so a
     human typing a pairing code or a prompt slowly is never cut off. Once the
     peer owns a live session, `disarm()` stops the watchdog - long quiet spells
-    (Claude thinking, the user reading a long reply) are legitimate then and
+    (Codex thinking, the user reading a long reply) are legitimate then and
     must not drop the line."""
 
     def __init__(self, ch, timeout: float, peer=None) -> None:
