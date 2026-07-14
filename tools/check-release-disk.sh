@@ -2,7 +2,7 @@
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DISK="${1:-$ROOT/apple2gs/CLAUDE.dsk}"
+DISK="${1:-$ROOT/apple2gs/CODEX.dsk}"
 DOS33="${DOS33:-${DOS33FSPROGS:-/tmp/dos33fsprogs}/utils/dos33fs-utils/dos33}"
 
 if [ ! -x "$DOS33" ]; then
@@ -15,10 +15,16 @@ if [ ! -f "$DISK" ]; then
   exit 1
 fi
 
+size="$(wc -c < "$DISK" | tr -d ' ')"
+if [ "$size" != 143360 ]; then
+  echo "release gate: $DISK is $size bytes; expected 143360" >&2
+  exit 1
+fi
+
 catalog="$("$DOS33" "$DISK" CATALOG)"
 printf '%s\n' "$catalog"
 
-for name in COBJ COBJ8; do
+for name in CODEX CODEX8; do
   if ! printf '%s\n' "$catalog" | awk -v name="$name" \
     '$1 == "B" && $3 == name { found=1 } END { exit !found }'; then
     echo "release gate: $DISK is missing binary catalog entry $name" >&2
@@ -26,4 +32,4 @@ for name in COBJ COBJ8; do
   fi
 done
 
-echo "release gate: disk contains COBJ and COBJ8"
+echo "release gate: disk is 143360 bytes and contains CODEX and CODEX8"

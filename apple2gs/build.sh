@@ -17,45 +17,39 @@ TOK="$DOS33FSPROGS/utils/asoft_basic-utils/tokenize_asoft"
 BASE=dos33-master-jan83.dsk
 
 python3 gen_assets.py
-ca65 --cpu 65816 -o claude.o claude.s
-ld65 -C claude.cfg -o claude.obj claude.o
+ca65 --cpu 65816 -o codex.o codex.s
+ld65 -C codex.cfg -o codex.obj codex.o
 
 # 8-bit client (IIe/IIc/IIc+/II+) shares the disk
-ca65 --cpu 6502 -o ../apple2/claude2.o ../apple2/claude2.s
-ld65 -C ../apple2/claude2.cfg -o COBJ8 ../apple2/claude2.o
+ca65 --cpu 6502 -o ../apple2/codex2.o ../apple2/codex2.s
+ld65 -C ../apple2/codex2.cfg -o CODEX8 ../apple2/codex2.o
 
-# HELLO picks the client for the machine: IIgs -> COBJ (SHR), everything
-# else -> COBJ8 (text). GS vs enhanced IIe ($FBB3=6, $FBC0=$E0 on both)
+# HELLO picks the client for the machine: IIgs -> CODEX (SHR), everything
+# else -> CODEX8 (text). GS vs enhanced IIe ($FBB3=6, $FBC0=$E0 on both)
 # is split by the GS id hook: SEC / JSR $FE1F / carry clear = GS. The
 # stub POKEd at $300 stores the carry at 783.
 # dos33 (BSD getopt) needs flags BEFORE the disk, and no '.' in filenames.
-cat > hello.bas <<'BAS'
-10 P1 = PEEK(64435): IF P1 <> 6 THEN 100
-20 P2 = PEEK(64448): IF P2 = 0 OR P2 = 234 THEN 100
-30 POKE 768,56: POKE 769,32: POKE 770,31: POKE 771,254: POKE 772,169: POKE 773,0: POKE 774,42: POKE 775,141: POKE 776,15: POKE 777,3: POKE 778,96: CALL 768
-40 IF PEEK(783) = 0 THEN PRINT CHR$(4);"BRUN COBJ"
-100 PRINT CHR$(4);"BRUN COBJ8"
-BAS
 $TOK < hello.bas > HH
-cp claude.obj COBJ
+cp codex.obj CODEX
 
-cp "$BASE" CLAUDE.dsk
-$DOS33 CLAUDE.dsk UNLOCK HELLO
-$DOS33 -y CLAUDE.dsk DELETE HELLO
-$DOS33 -y CLAUDE.dsk SAVE A HH HELLO
-$DOS33 -a 0x4000 CLAUDE.dsk BSAVE COBJ COBJ
-$DOS33 -a 0x2000 CLAUDE.dsk BSAVE COBJ8 COBJ8
-python3 reserve_token_sector.py CLAUDE.dsk
-$DOS33 CLAUDE.dsk CATALOG
-# Opt-in convenience deploy for KEGS (~/config.kegs boots ~/Downloads/CLAUDE.dsk).
+cp "$BASE" CODEX.dsk
+$DOS33 CODEX.dsk UNLOCK HELLO
+$DOS33 -y CODEX.dsk DELETE HELLO
+$DOS33 -y CODEX.dsk SAVE A HH HELLO
+$DOS33 -a 0x4000 CODEX.dsk BSAVE CODEX CODEX
+$DOS33 -a 0x2000 CODEX.dsk BSAVE CODEX8 CODEX8
+python3 reserve_token_sector.py CODEX.dsk
+test "$(wc -c < CODEX.dsk | tr -d ' ')" = 143360
+$DOS33 CODEX.dsk CATALOG
+# Opt-in convenience deploy for KEGS (~/config.kegs boots ~/Downloads/CODEX.dsk).
 # Off by default so a plain build never writes outside the repo; enable with
 # COPY_TO_DOWNLOADS=1 ./build.sh. Harmless if ~/Downloads doesn't exist.
-if [ -n "$COPY_TO_DOWNLOADS" ]; then
-  if cp CLAUDE.dsk "$HOME/Downloads/CLAUDE.dsk" 2>/dev/null; then
-    echo "=== copied CLAUDE.dsk to ~/Downloads (COPY_TO_DOWNLOADS) ==="
+if [ -n "${COPY_TO_DOWNLOADS:-}" ]; then
+  if cp CODEX.dsk "$HOME/Downloads/CODEX.dsk" 2>/dev/null; then
+    echo "=== copied CODEX.dsk to ~/Downloads (COPY_TO_DOWNLOADS) ==="
   else
     echo "=== COPY_TO_DOWNLOADS set but ~/Downloads copy failed (dir missing?) ===" >&2
   fi
 fi
-echo "=== built CLAUDE.dsk (master-based, boots KEGS + FloppyEmu + real drives) ==="
+echo "=== built CODEX.dsk (master-based, boots KEGS + FloppyEmu + real drives) ==="
 echo "    (set COPY_TO_DOWNLOADS=1 to also copy it to ~/Downloads for KEGS)"
