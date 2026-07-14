@@ -1,3 +1,2 @@
-# All optional bridge features. TCP + --backend code needs no Python package.
--r requirements-chat.txt
+# Core bridge has no third-party dependency. Serial transport is optional.
 -r requirements-serial.txt

@@ -1,12 +1,11 @@
 """Tests for W-528: real Ctrl-C cancellation + idle-connection timeout.
 
 Plain assert-script (not pytest). Covers what's exercisable without a live
-`claude` process or a real Apple II:
+Codex process or a real Apple II:
 
   * _kill_process_group takes down a whole process group (no orphaned child),
   * and escalates SIGTERM -> SIGKILL when the leader ignores SIGTERM,
-  * CodeBackend.cancel routes through the group kill,
-  * ChatBackend.cancel closes the in-flight stream (aborts a stalled turn),
+  * CodexBackend.cancel routes through the group kill,
   * _IdleGuard drops a silent peer, resets on bytes, and stops on disarm.
 """
 import os
@@ -19,6 +18,17 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import backends
 import bridge
+
+
+def _backend(codex_bin=sys.executable):
+    return backends.CodexBackend(
+        cols=80,
+        model=None,
+        codex_bin=codex_bin,
+        cwd=os.getcwd(),
+        sandbox="workspace-write",
+        show_tools=False,
+    )
 
 
 def _alive(pid: int) -> bool:
@@ -62,7 +72,7 @@ def test_kill_group_no_orphans() -> None:
 
     backends._kill_process_group(proc, grace=2.0)
 
-    assert _wait_dead(proc.pid), "parent (claude -p stand-in) survived the kill"
+    assert _wait_dead(proc.pid), "parent (Codex stand-in) survived the kill"
     assert _wait_dead(child_pid), "CHILD orphaned - group kill missed it"
     print("PASS: _kill_process_group takes down the whole group (no orphans)")
 
@@ -100,11 +110,11 @@ def test_kill_group_already_dead() -> None:
     print("PASS: _kill_process_group no-ops on an already-dead process")
 
 
-def test_codebackend_cancel_uses_group_kill() -> None:
-    # Point a CodeBackend at a long-lived process-group leader and confirm its
+def test_codexbackend_cancel_uses_group_kill() -> None:
+    # Point a CodexBackend at a long-lived process-group leader and confirm its
     # cancel() tears the group down (proving cancel routes through the group
     # kill, not a lone terminate()).
-    be = backends.CodeBackend(cols=80)
+    be = _backend()
     proc = subprocess.Popen(
         [sys.executable, "-c", "import time; time.sleep(999)"],
         start_new_session=True,
@@ -112,8 +122,8 @@ def test_codebackend_cancel_uses_group_kill() -> None:
     be._proc = proc
     be.cancel()
     assert be._cancelled is True
-    assert _wait_dead(proc.pid), "CodeBackend.cancel did not kill the turn"
-    print("PASS: CodeBackend.cancel kills the process group")
+    assert _wait_dead(proc.pid), "CodexBackend.cancel did not kill the turn"
+    print("PASS: CodexBackend.cancel kills the process group")
 
 
 def test_kill_group_when_leader_exits_but_child_ignores_term() -> None:
@@ -142,7 +152,7 @@ def test_kill_group_when_leader_exits_but_child_ignores_term() -> None:
     assert _wait_dead(child_pid), "SIGTERM-ignoring child survived leader exit"
 
 
-def test_codebackend_cancel_during_process_publication(monkeypatch) -> None:
+def test_codexbackend_cancel_during_process_publication(monkeypatch) -> None:
     real_popen = backends.subprocess.Popen
     spawned = threading.Event()
     publish = threading.Event()
@@ -156,8 +166,8 @@ def test_codebackend_cancel_during_process_publication(monkeypatch) -> None:
         assert publish.wait(2)
         return proc
 
-    be = backends.CodeBackend(cols=80, claude_bin=sys.executable)
-    be._build_cmd = lambda _text: [
+    be = _backend()
+    be._build_cmd = lambda: [
         sys.executable, "-c", "import time; time.sleep(999)"
     ]
     monkeypatch.setattr(backends.subprocess, "Popen", delayed_popen)
@@ -180,9 +190,9 @@ def test_codebackend_cancel_during_process_publication(monkeypatch) -> None:
     assert errors == [], f"worker raised: {errors!r}"
 
 
-def test_codebackend_cancel_after_generator_creation_is_not_cleared() -> None:
-    be = backends.CodeBackend(cols=80, claude_bin=sys.executable)
-    be._build_cmd = lambda _text: [
+def test_codexbackend_cancel_after_generator_creation_is_not_cleared() -> None:
+    be = _backend()
+    be._build_cmd = lambda: [
         sys.executable, "-c", "import time; time.sleep(999)"
     ]
     be.begin_turn()
@@ -209,9 +219,9 @@ class _GatedClearEvent(threading.Event):
         super().clear()
 
 
-def test_codebackend_cancel_at_turn_start_is_not_cleared() -> None:
-    be = backends.CodeBackend(cols=80, claude_bin=sys.executable)
-    be._build_cmd = lambda _text: [
+def test_codexbackend_cancel_at_turn_start_is_not_cleared() -> None:
+    be = _backend()
+    be._build_cmd = lambda: [
         sys.executable, "-c", "import time; time.sleep(999)"
     ]
     gate = _GatedClearEvent()
@@ -252,310 +262,6 @@ def test_codebackend_cancel_at_turn_start_is_not_cleared() -> None:
     assert cancel_errors == [], f"cancel worker raised: {cancel_errors!r}"
 
 
-def test_probe_model_timeout_kills_descendants(monkeypatch, tmp_path) -> None:
-    real_popen = backends.subprocess.Popen
-    pid_file = tmp_path / "probe-child.pid"
-    holder = {}
-    child_src = (
-        "import signal,time;"
-        "signal.signal(signal.SIGTERM, signal.SIG_IGN);"
-        "print('ready', flush=True);"
-        "time.sleep(999)"
-    )
-    parent_src = (
-        "import pathlib,subprocess,sys,time;"
-        "c=subprocess.Popen([sys.executable,'-c',sys.argv[1]],"
-        "stdout=subprocess.PIPE,text=True);"
-        "assert c.stdout.readline().strip()=='ready';"
-        "pathlib.Path(sys.argv[2]).write_text(str(c.pid));"
-        "time.sleep(999)"
-    )
-
-    def probe_popen(_cmd, **kwargs):
-        holder["start_new_session"] = kwargs.get("start_new_session") is True
-        proc = real_popen(
-            [sys.executable, "-c", parent_src, child_src, str(pid_file)],
-            stdin=kwargs.get("stdin"), stdout=kwargs.get("stdout"),
-            stderr=kwargs.get("stderr"), text=kwargs.get("text", False),
-            bufsize=kwargs.get("bufsize", -1),
-            start_new_session=holder["start_new_session"],
-        )
-        holder["proc"] = proc
-        return proc
-
-    monkeypatch.setattr(backends.subprocess, "Popen", probe_popen)
-    be = backends.CodeBackend(cols=80, claude_bin="probe")
-    t0 = time.monotonic()
-    child_pid = None
-    try:
-        be.probe_model(timeout=1.0)
-        elapsed = time.monotonic() - t0
-        child_pid = int(pid_file.read_text())
-        child_dead = _wait_dead(child_pid, timeout=0.5)
-    finally:
-        proc = holder.get("proc")
-        if proc is not None and holder.get("start_new_session"):
-            backends._kill_process_group(proc, grace=0.1)
-        if child_pid is not None and _alive(child_pid):
-            os.kill(child_pid, 9)
-
-    assert elapsed < 4.0, f"probe timeout cleanup took {elapsed:.2f}s"
-    assert holder["start_new_session"], "probe did not lead a process group"
-    assert child_dead, "probe timeout orphaned a descendant"
-
-
-def test_probe_model_init_kills_descendants(monkeypatch) -> None:
-    real_popen = backends.subprocess.Popen
-    holder = {}
-    child_src = (
-        "import signal,time;"
-        "signal.signal(signal.SIGTERM, signal.SIG_IGN);"
-        "print('ready', flush=True);"
-        "time.sleep(999)"
-    )
-    parent_src = (
-        "import json,subprocess,sys,time;"
-        "c=subprocess.Popen([sys.executable,'-c',sys.argv[1]],"
-        "stdout=subprocess.PIPE,text=True);"
-        "assert c.stdout.readline().strip()=='ready';"
-        "print(json.dumps({'type':'system','subtype':'init','cwd':str(c.pid)}),"
-        "flush=True);"
-        "time.sleep(999)"
-    )
-
-    def probe_popen(_cmd, **kwargs):
-        holder["start_new_session"] = kwargs.get("start_new_session") is True
-        proc = real_popen(
-            [sys.executable, "-c", parent_src, child_src],
-            stdin=kwargs.get("stdin"), stdout=kwargs.get("stdout"),
-            stderr=kwargs.get("stderr"), text=kwargs.get("text", False),
-            bufsize=kwargs.get("bufsize", -1),
-            start_new_session=holder["start_new_session"],
-        )
-        holder["proc"] = proc
-        return proc
-
-    monkeypatch.setattr(backends.subprocess, "Popen", probe_popen)
-    be = backends.CodeBackend(cols=80, claude_bin="probe")
-    t0 = time.monotonic()
-    child_pid = None
-    try:
-        be.probe_model(timeout=2.0)
-        elapsed = time.monotonic() - t0
-        child_pid = int(be._last_cwd)
-        child_dead = _wait_dead(child_pid, timeout=0.5)
-    finally:
-        proc = holder.get("proc")
-        if proc is not None and holder.get("start_new_session"):
-            backends._kill_process_group(proc, grace=0.1)
-        if child_pid is not None and _alive(child_pid):
-            os.kill(child_pid, 9)
-
-    assert elapsed < 3.0, f"normal probe cleanup took {elapsed:.2f}s"
-    assert holder["start_new_session"], "probe did not lead a process group"
-    assert child_dead, "normal probe cleanup orphaned a descendant"
-
-
-# --------------------------------------------------------------------------- #
-# ChatBackend.cancel: abort the stream even mid-stall
-# --------------------------------------------------------------------------- #
-def test_chatbackend_cancel_closes_stream() -> None:
-    # Build the backend without touching the anthropic SDK / a live client.
-    be = backends.ChatBackend.__new__(backends.ChatBackend)
-    be._cancel = False
-    be._state_lock = threading.Lock()
-    be._cancel_event = threading.Event()
-    closed = []
-
-    class FakeStream:
-        def close(self):
-            closed.append(True)
-
-    be._stream = FakeStream()
-    be.cancel()
-    assert be._cancel is True, "cancel must still set the flag"
-    assert closed == [True], "cancel must close the in-flight stream"
-
-    # With no active stream it must be a harmless no-op.
-    be._stream = None
-    be.cancel()
-    print("PASS: ChatBackend.cancel closes the stream (and no-ops when idle)")
-
-
-def test_chatbackend_cancel_during_stream_publication() -> None:
-    entered = threading.Event()
-    publish = threading.Event()
-    closed = threading.Event()
-    errors = []
-
-    class BlockingText:
-        def __iter__(self):
-            closed.wait(3)
-            return iter(())
-
-    class FakeStream:
-        text_stream = BlockingText()
-        def close(self):
-            closed.set()
-        def get_final_message(self):
-            raise AssertionError("cancelled stream must not request a final message")
-
-    class StreamContext:
-        def __enter__(self):
-            entered.set()
-            assert publish.wait(2)
-            return FakeStream()
-        def __exit__(self, *_args):
-            return False
-
-    class Messages:
-        def stream(self, **_kwargs):
-            return StreamContext()
-
-    be = backends.ChatBackend.__new__(backends.ChatBackend)
-    be._client = type("Client", (), {"messages": Messages()})()
-    be._model = "test"
-    be._effort = "low"
-    be._max_tokens = 32
-    be._system = "test"
-    be._messages = []
-    be._cancel = False
-    be._stream = None
-    be._state_lock = threading.Lock()
-    be._cancel_event = threading.Event()
-
-    def consume():
-        try:
-            list(be.stream("hello"))
-        except Exception as exc:
-            errors.append(exc)
-
-    worker = threading.Thread(target=consume, daemon=True)
-    worker.start()
-    assert entered.wait(2)
-    be.cancel()
-    publish.set()
-    worker.join(3)
-    assert closed.is_set(), "stream published after cancel was not closed"
-    assert not worker.is_alive(), "chat stream stayed blocked after startup cancel"
-    assert errors == [], f"worker raised: {errors!r}"
-
-
-def test_chatbackend_cancel_at_turn_start_is_not_cleared() -> None:
-    closed = threading.Event()
-    worker_errors = []
-    cancel_errors = []
-
-    class BlockingText:
-        def __iter__(self):
-            closed.wait(3)
-            return iter(())
-
-    class FakeStream:
-        text_stream = BlockingText()
-        def close(self):
-            closed.set()
-        def get_final_message(self):
-            raise AssertionError("cancelled stream must not request a final message")
-
-    class StreamContext:
-        def __enter__(self):
-            return FakeStream()
-        def __exit__(self, *_args):
-            return False
-
-    class Messages:
-        def stream(self, **_kwargs):
-            return StreamContext()
-
-    be = backends.ChatBackend.__new__(backends.ChatBackend)
-    be._client = type("Client", (), {"messages": Messages()})()
-    be._model = "test"
-    be._effort = "low"
-    be._max_tokens = 32
-    be._system = "test"
-    be._messages = []
-    be._cancel = False
-    be._stream = None
-    be._state_lock = threading.Lock()
-    gate = _GatedClearEvent()
-    be._cancel_event = gate
-
-    def consume():
-        try:
-            be.begin_turn()
-            list(be.stream("hello"))
-        except Exception as exc:
-            worker_errors.append(exc)
-
-    def cancel():
-        try:
-            be.cancel()
-        except Exception as exc:
-            cancel_errors.append(exc)
-
-    worker = threading.Thread(target=consume, daemon=True)
-    worker.start()
-    assert gate.entered.wait(2)
-    canceller = threading.Thread(target=cancel, daemon=True)
-    canceller.start()
-    gate.release.set()
-    canceller.join(2)
-    worker.join(1)
-    closed_by_first_cancel = closed.is_set()
-    if worker.is_alive():
-        closed.set()
-        worker.join(2)
-
-    assert not canceller.is_alive(), "cancel stayed blocked at turn start"
-    assert closed_by_first_cancel, "turn-start cancel was cleared"
-    assert not worker.is_alive(), "chat stream survived test cleanup"
-    assert worker_errors == [], f"worker raised: {worker_errors!r}"
-    assert cancel_errors == [], f"cancel worker raised: {cancel_errors!r}"
-
-
-def test_chatbackend_cancel_after_generator_creation_is_not_cleared() -> None:
-    closed = threading.Event()
-
-    class FakeStream:
-        text_stream = ()
-        def close(self):
-            closed.set()
-        def get_final_message(self):
-            raise AssertionError("cancelled stream must not request final message")
-
-    class StreamContext:
-        def __enter__(self):
-            return FakeStream()
-        def __exit__(self, *_args):
-            return False
-
-    class Messages:
-        def stream(self, **_kwargs):
-            return StreamContext()
-
-    be = backends.ChatBackend.__new__(backends.ChatBackend)
-    be._client = type("Client", (), {"messages": Messages()})()
-    be._model = "test"
-    be._effort = "low"
-    be._max_tokens = 32
-    be._system = "test"
-    be._messages = []
-    be._cancel = False
-    be._stream = None
-    be._state_lock = threading.Lock()
-    be._cancel_event = threading.Event()
-
-    be.begin_turn()
-    stream = be.stream("hello")
-    be.cancel()
-    list(stream)
-
-    assert closed.is_set()
-    assert be._cancel_event.is_set()
-
-
-# --------------------------------------------------------------------------- #
 # _IdleGuard: drop a silent peer, but never a slow-typing one
 # --------------------------------------------------------------------------- #
 class _FakeChannel:
@@ -624,7 +330,7 @@ if __name__ == "__main__":
     test_kill_group_no_orphans()
     test_kill_group_escalates_to_sigkill()
     test_kill_group_already_dead()
-    test_codebackend_cancel_uses_group_kill()
+    test_codexbackend_cancel_uses_group_kill()
     test_chatbackend_cancel_closes_stream()
     test_idle_guard_drops_silent_peer()
     test_idle_guard_resets_on_bytes()

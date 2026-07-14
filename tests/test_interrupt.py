@@ -60,8 +60,8 @@ class FakeChannel:
 
 
 class SlowBackend:
-    """Streams until cancelled - a stand-in for a long Claude turn."""
-    name = "code"
+    """Streams until cancelled - a stand-in for a long Codex turn."""
+    name = "codex"
 
     def __init__(self):
         self.cancelled = False
@@ -70,7 +70,7 @@ class SlowBackend:
         self.done_event = threading.Event()
 
     def prime(self): pass
-    def header(self): return ("Claude Code vTEST", "Opus test", "~/x")
+    def header(self): return ("Codex CLI vTEST", "default model", "~/x")
     def footer(self): return None if self.cancelled else "Worked for 1s"
     def reset(self): pass
 

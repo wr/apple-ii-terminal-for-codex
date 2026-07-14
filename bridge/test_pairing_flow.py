@@ -35,7 +35,7 @@ class _FakeTerm:
 
 
 class _FakeBackend:
-    """Minimal stand-in for backends.CodeBackend/ChatBackend: records every
+    """Minimal stand-in for backends.CodexBackend: records every
     prompt it's asked to stream, so a test can assert a stale token never
     reached it."""
     def __init__(self):
@@ -165,6 +165,14 @@ def test_run_app_session_swallows_token_on_live_reconnect():
     assert term.written.count(EOT[0]) >= 1
 
 
+def test_run_app_session_never_forwards_unknown_slash_command():
+    term = _FakeTerm(["/compact", None])
+    backend = _FakeBackend()
+    run_app_session(term, _args(cols=80), backend, None, "codex")
+    assert backend.prompts == []
+    assert any("unknown command" in line for line in term.lines_out)
+
+
 def test_stale_token_prompts_for_code_without_strike(tmp_path):
     # Bug D: after --clear-paired the client still auto-sends its old token as
     # the first line. The bridge doesn't recognize it - but must NOT count it
@@ -237,7 +245,7 @@ def test_run_app_session_code_pairing_sends_header_before_eot():
     # deferred token write goes deaf.
     class _BE(_FakeBackend):
         def header(self):
-            return ("Claude Code v1", "Opus", "~/x")
+            return ("Codex CLI v1", "default model", "~/x")
     term = _FakeTerm([None])
     run_app_session(term, _args(cols=80), _BE(), None, "code", pair_via="code")
     w = bytes(term.written)

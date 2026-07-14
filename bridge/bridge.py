@@ -1,20 +1,15 @@
 #!/usr/bin/env python3
-"""The host half of Terminal for Claude Code (Apple II).
+"""The host half of Terminal for Codex (Apple II).
 
 The Apple II is a dumb terminal. This program sits on a modern host, reads the
-line you type, sends it to Claude, and streams the reply back word-wrapped for a
+line you type, sends it to Codex, and streams the reply back word-wrapped for a
 40- or 80-column screen.
 
   Serial (a USB-serial cable into the II's serial port):
       python bridge.py --serial /dev/tty.usbserial-XXXX --baud 9600
 
   Telnet / WiFi modem (the II dials out over TCP):
-      python bridge.py --telnet --port 6400
-
-Backends:
-      --backend chat   direct Q&A with Claude (default). Nothing runs on host.
-      --backend code   the real `claude` CLI. Edits files and runs commands
-                       ON THIS HOST. Switch live with `/mode code`.
+      python bridge.py --telnet --port 6401 --workdir /path/to/git/repo
 
 Type `/help` on the Apple II once connected.
 """
@@ -27,18 +22,20 @@ import json
 import os
 import queue
 import secrets
+import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
-from backends import ChatBackend, CodeBackend
+from backends import CodexBackend, MIN_CODEX_VERSION, codex_version
 from render import StreamFormatter
 from terminal import Terminal, TermConfig
 from transports import SerialTransport, TCPTransport, TCPClientTransport
 
 BANNER = [
     "===================================",
-    "  TERMINAL FOR CLAUDE CODE",
+    "  TERMINAL FOR CODEX",
     "  on the Apple ][",
     "===================================",
     "Type /help for commands.",
@@ -49,12 +46,9 @@ HELP = [
     "COMMANDS:",
     "  /help         this list",
     "  /new /clear   start a fresh conversation",
-    "  /mode chat    plain Q&A with Claude (safe)",
-    "  /mode code    real Claude Code (edits files here!)",
-    "  /model NAME   switch model (opus, sonnet, haiku...)",
+    "  /model NAME   set the Codex model for later turns",
     "  /quit /exit   back to the menu (Ctrl-C when idle does this too)",
-    "code mode: other /commands go to Claude Code itself -",
-    "  /cost /context /compact and skills work; TUI-only ones say so.",
+    "Other slash commands are not available on this terminal.",
     "",
 ]
 
@@ -110,7 +104,7 @@ def _lan_ip():
 
 
 def print_banner(args, transport, pm=None) -> None:
-    """The Claude Code welcome box, bridge edition: rounded border, the
+    """The Codex welcome box, bridge edition: rounded border, the
     title in the top rule, coral accents. Content is (plain, styled)
     pairs so padding is computed on visible length; every stock line is
     budgeted to keep the whole box inside 40 columns."""
@@ -149,7 +143,7 @@ def print_banner(args, transport, pm=None) -> None:
             f"{GRAY}this host gets a shell. Trusted LAN{OFF}")
         row("only.", f"{GRAY}only.{OFF}")
 
-    title = " Apple II Terminal for Claude Code "
+    title = " Apple II Terminal for Codex "
     ver = " v1.1.0 "
     inner = max([len(p) + 4 for p, _ in rows] + [38])  # box is 40 wide
     print()
@@ -165,7 +159,7 @@ def print_banner(args, transport, pm=None) -> None:
     if args.telnet:
         # code mode hands callers a shell on this host; even chat mode spends
         # your API budget. Safe on a home LAN, never on the open internet.
-        print(f"{CORAL}! Trusted LAN only.{OFF}{GRAY} This exposes a Claude "
+        print(f"{CORAL}! Trusted LAN only.{OFF}{GRAY} This exposes a Codex "
               f"session on your network;{OFF}")
         print(f"{GRAY}do NOT port-forward it or bind it to a public "
               f"interface.{OFF}")
@@ -173,20 +167,14 @@ def print_banner(args, transport, pm=None) -> None:
     print()
 
 
-def make_backend(mode: str, cols: int, args) -> object:
-    if mode == "code":
-        return CodeBackend(
-            cols=cols,
-            model=args.model or None,
-            permission_mode=args.permission_mode,
-            claude_bin=args.claude_bin,
-            cwd=args.workdir,
-            show_tools=not args.app,  # app keeps a spinner up until the answer
-        )
-    return ChatBackend(
+def make_backend(cols: int, args) -> CodexBackend:
+    return CodexBackend(
         cols=cols,
-        model=args.model or "claude-opus-4-8",
-        effort=args.effort,
+        model=args.model or None,
+        codex_bin=args.codex_bin,
+        cwd=args.workdir,
+        sandbox=args.sandbox,
+        show_tools=not args.app,
     )
 
 
@@ -196,7 +184,7 @@ CMD_TOKEN = b"\x05"  # app mode: bridge issues a device token; client stores it
 # Lines a WiFi modem volunteers ON THE WIRE around a (re)connect - the
 # WiModem announces "reconnected" into the session itself. Anything here,
 # arriving before the user has typed a single real line, is the modem
-# talking, not the human; forwarding it would burn a Claude turn.
+# talking, not the human; forwarding it would burn a Codex turn.
 _MODEM_CHATTER = ("RECONNECTED", "RING", "NO CARRIER", "NO ANSWER",
                   "NO DIALTONE", "BUSY", "ERROR")
 
@@ -228,7 +216,7 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode,
     cols = args.cols
     peer = getattr(term.ch, "peer", None)
     if backend_err:
-        term.write_line(f"[chat unavailable: {backend_err}]")
+        term.write_line(f"[Codex unavailable: {backend_err}]")
         term.write(EOT)
     if backend:  # learn the model/cwd/version, then show the header at boot
         backend.prime()
@@ -286,16 +274,13 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode,
         fresh = False
         show_user(peer, user)
         if user.startswith("/"):
-            keep = handle_command(user, term, args, backend, mode)
+            keep = handle_command(user, term, args, backend)
             if keep is False:
                 term.write(b"\x03")  # CMD_QUIT: the client returns to its menu
                 term.write(EOT)
                 return
-            if keep != "pass":  # "pass" = forward to claude like a prompt
-                term.write(EOT)
-                if isinstance(keep, tuple):
-                    backend, mode = keep
-                continue
+            term.write(EOT)
+            continue
         if backend is None:
             term.write_line("[no backend]")
             term.write(EOT)
@@ -303,7 +288,7 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode,
         # Buffer the whole reply, then send it after generation finishes. The
         # client receives nothing until then, so its thinking spinner runs for
         # the entire think instead of stopping at the first streamed byte.
-        # Width is cols-2: the reply renders as a Claude Code-style block, two
+        # Width is cols-2: the reply renders as a Codex-style block, two
         # cells of bullet/indent in front of every line.
         # The backend streams on a thread so the transport can be watched for
         # a bare Ctrl-C (0x03) from the client - that cancels the turn; the
@@ -454,7 +439,7 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode,
 
 def _pairing_store() -> str:
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-    return os.path.join(base, "claude-ii-terminal", "paired.json")
+    return os.path.join(base, "codex-ii-terminal", "paired.json")
 
 
 # Pairing codes are typed on the Apple II keyboard, so the alphabet is
@@ -697,7 +682,7 @@ def require_pairing(term: Terminal, args, pm: PairingManager) -> bool:
         if not line:
             if args.app and not prompted:
                 announce_code()
-                _lock_header(term, ("Terminal for Claude Code",
+                _lock_header(term, ("Terminal for Codex",
                                     "LOCKED - type the pairing code",
                                     "(it's on the bridge console)"))
                 prompted = True
@@ -731,7 +716,7 @@ def require_pairing(term: Terminal, args, pm: PairingManager) -> bool:
             # prompt (a header frame) so the user can type the code, no strike.
             announce_code()
             if args.app:
-                _lock_header(term, ("Terminal for Claude Code",
+                _lock_header(term, ("Terminal for Codex",
                                     "LOCKED - type the pairing code",
                                     "(it's on the bridge console)"))
                 term.write(EOT)
@@ -849,24 +834,15 @@ def _run_session(term: Terminal, args, pm, guard) -> None:
     if guard:
         guard.disarm()  # authenticated (or no gate): the peer owns the session
     cols = args.cols
-    mode = args.backend
-    backend = None
+    mode = "codex"
+    backend = make_backend(cols, args)
     backend_err = None
-    try:
-        backend = make_backend(mode, cols, args)
-    except Exception as exc:  # e.g. missing API key for chat mode
-        backend_err = str(exc)
 
     if args.app:
         return run_app_session(term, args, backend, backend_err, mode, pair_via)
 
     for line in BANNER:
         term.write_line(line)
-    if backend_err:
-        term.write_line(f"[chat unavailable: {backend_err}]")
-        term.write_line("Try /mode code, or set ANTHROPIC_API_KEY and reconnect.")
-        term.write_line("")
-
     peer = getattr(term.ch, "peer", None)
     fresh = True  # no real user input yet: modem chatter is still expected
     while not term.closed:
@@ -884,20 +860,17 @@ def _run_session(term: Terminal, args, pm, guard) -> None:
         show_user(getattr(term.ch, "peer", None), user)
 
         if user.startswith("/"):
-            keep = handle_command(user, term, args, backend, mode)
+            keep = handle_command(user, term, args, backend)
             if keep is False:
                 return
-            if keep != "pass":  # "pass" = forward to claude like a prompt
-                if isinstance(keep, tuple):  # (new_backend, new_mode)
-                    backend, mode = keep
-                continue
+            continue
 
         if backend is None:
-            term.write_line("[no backend - use /mode code or set an API key]")
+            term.write_line("[no Codex backend]")
             continue
 
         term.write_line("")
-        term.write_line(f"Claude ({mode})>")
+        term.write_line("Codex>")
         fmt = StreamFormatter(cols)
         nlines = 0
         t0 = time.monotonic()
@@ -923,8 +896,8 @@ def _run_session(term: Terminal, args, pm, guard) -> None:
                    time.monotonic() - t0, nlines, mode)
 
 
-def handle_command(cmd: str, term: Terminal, args, backend, mode):
-    """Return None to keep going, False to disconnect, or (backend, mode)."""
+def handle_command(cmd: str, term: Terminal, args, backend):
+    """Return False to disconnect; otherwise consume the local command."""
     parts = cmd.split()
     name = parts[0].lower()
 
@@ -944,33 +917,29 @@ def handle_command(cmd: str, term: Terminal, args, backend, mode):
         return None
 
     if name == "/model" and len(parts) > 1:
-        # each code-mode turn is a fresh `claude -p` process, so a /model
-        # passed through would not stick - remember it bridge-side instead
         if backend:
             backend._model = parts[1]
-            if hasattr(backend, "_last_model"):
-                backend._last_model = None  # header shows the new model
         term.write_line(f"[model: {parts[1]} from the next message]")
         return None
 
-    if name == "/mode":
-        if len(parts) < 2 or parts[1] not in ("chat", "code"):
-            term.write_line("Usage: /mode chat | /mode code")
-            return None
-        new_mode = parts[1]
-        try:
-            new_backend = make_backend(new_mode, args.cols, args)
-        except Exception as exc:
-            term.write_line(f"[cannot switch: {exc}]")
-            return None
-        warn = " (edits files on the host!)" if new_mode == "code" else ""
-        term.write_line(f"[mode: {new_mode}{warn}]")
-        return (new_backend, new_mode)
-
-    if mode == "code":
-        return "pass"  # `claude -p` runs many slash commands natively
     term.write_line(f"[unknown command: {name} - try /help]")
     return None
+
+
+def validate_workdir(path: str) -> str:
+    try:
+        resolved = str(Path(path).expanduser().resolve(strict=True))
+    except OSError as exc:
+        raise ValueError("--workdir must be an existing Git repository") from exc
+    result = subprocess.run(
+        ["git", "-C", resolved, "rev-parse", "--is-inside-work-tree"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode or result.stdout.strip() != "true":
+        raise ValueError("--workdir must be an existing Git repository")
+    return resolved
 
 
 def parse_hostport(value: str, default_host: str = "127.0.0.1") -> tuple[str, int]:
@@ -994,9 +963,9 @@ def build_transport(args):
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(
-        description="Terminal for Claude Code - the host bridge",
+        description="Terminal for Codex - the host bridge",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="SECURITY: --telnet exposes a Claude session (in code mode, a\n"
+        epilog="SECURITY: --telnet exposes a Codex session and shell access\n"
                "shell on this host) to your network. It is meant for a TRUSTED\n"
                "HOME LAN only - never port-forward it or bind it to a public\n"
                "interface. Callers are gated by a per-source-IP pairing code\n"
@@ -1019,7 +988,7 @@ def parse_args(argv=None):
                    help="telnet bind address (default 0.0.0.0: all interfaces, "
                         "needed so the WiFi modem can reach the host over the "
                         "LAN; set to a specific IP or 127.0.0.1 to narrow it)")
-    p.add_argument("--port", type=int, default=6400, help="telnet port (default 6400)")
+    p.add_argument("--port", type=int, default=6401, help="telnet port (default 6401)")
     p.add_argument("--pair-code", default="",
                    help="fix one shared pairing code for every caller; letters "
                         "are case-insensitive (telnet default: a per-source-IP "
@@ -1050,25 +1019,38 @@ def parse_args(argv=None):
     p.add_argument("--app", action="store_true",
                    help="native-client protocol: no echo/banner/prompts, EOT after "
                         "each reply (for the native clients on the boot disk)")
-    p.add_argument("--backend", default="chat", choices=("chat", "code"))
-    p.add_argument("--model", default="", help="override the Claude model id")
-    p.add_argument("--effort", default="low",
-                   choices=("low", "medium", "high", "xhigh", "max"),
-                   help="chat thinking effort (default low, for responsiveness)")
-    p.add_argument("--permission-mode", default="default",
-                   help="code mode: claude --permission-mode value")
-    p.add_argument("--claude-bin", default="claude", help="path to the claude CLI")
-    p.add_argument("--workdir", default=None, help="code mode: working directory")
+    p.add_argument("--model", default="", help="override the Codex model id")
+    p.add_argument("--sandbox", default="workspace-write",
+                   choices=("workspace-write", "read-only"),
+                   help="Codex sandbox (default workspace-write)")
+    p.add_argument("--codex-bin", default="codex", help="path to the Codex CLI")
+    p.add_argument("--workdir", required=True,
+                   help="existing Git repository Codex may work in")
 
     args = p.parse_args(argv)
     args.pair_code = args.pair_code.upper()
     if not args.serial and not args.telnet and not args.connect:
         p.error("choose a transport: --serial PORT, --telnet, or --connect HOST:PORT")
+    try:
+        args.workdir = validate_workdir(args.workdir)
+    except ValueError as exc:
+        p.error(str(exc))
     return args
 
 
 def main(argv=None) -> int:
     args = parse_args(argv)
+    version = codex_version(args.codex_bin)
+    if version is None:
+        print("bridge: Codex CLI not found; install Codex and run codex login",
+              file=sys.stderr)
+        return 2
+    if version < MIN_CODEX_VERSION:
+        found = ".".join(map(str, version))
+        needed = ".".join(map(str, MIN_CODEX_VERSION))
+        print(f"bridge: Codex CLI {found} is too old; need {needed} or newer",
+              file=sys.stderr)
+        return 2
     transport = build_transport(args)
     cfg = TermConfig(
         width=args.cols,

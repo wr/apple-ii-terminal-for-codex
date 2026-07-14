@@ -14,6 +14,7 @@ Run:  python3 -m pytest test_pairing.py -v   (or: python3 test_pairing.py)
 """
 import os
 import queue
+import subprocess
 import sys
 import tempfile
 import threading
@@ -27,8 +28,11 @@ from bridge import PairingManager, gen_pair_code, _PAIR_ALPHABET
 from terminal import Terminal, TermConfig
 
 
-def test_parse_args_normalizes_pinned_pair_code():
-    args = bridge.parse_args(["--telnet", "--pair-code", "abc234"])
+def test_parse_args_normalizes_pinned_pair_code(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    args = bridge.parse_args([
+        "--telnet", "--workdir", str(tmp_path), "--pair-code", "abc234"
+    ])
     assert args.pair_code == "ABC234"
 
 
