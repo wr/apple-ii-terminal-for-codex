@@ -965,10 +965,10 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(
         description="Terminal for Codex - the host bridge",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="SECURITY: --telnet exposes a Codex session and shell access\n"
-               "shell on this host) to your network. It is meant for a TRUSTED\n"
-               "HOME LAN only - never port-forward it or bind it to a public\n"
-               "interface. Callers are gated by a per-source-IP pairing code\n"
+        epilog="SECURITY: --telnet exposes a Codex session with workspace and\n"
+               "shell access on this host. It is meant for a TRUSTED HOME LAN\n"
+               "only - never port-forward it or bind it to a public interface.\n"
+               "Callers are gated by a per-source-IP pairing code\n"
                "with attempt lockout; --no-pair removes that gate (trusted,\n"
                "isolated networks only).")
 

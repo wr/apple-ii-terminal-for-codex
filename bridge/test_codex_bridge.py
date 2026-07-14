@@ -64,3 +64,12 @@ def test_pairing_store_is_isolated(monkeypatch, tmp_path):
     assert bridge._pairing_store() == str(
         tmp_path / "codex-ii-terminal" / "paired.json"
     )
+
+
+def test_help_security_epilog_has_no_stale_fragment(capsys):
+    with pytest.raises(SystemExit) as stopped:
+        bridge.parse_args(["--help"])
+    assert stopped.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "Codex session" in help_text
+    assert "shell on this host)" not in help_text
