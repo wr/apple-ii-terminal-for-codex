@@ -239,10 +239,15 @@ def test_cancel_kills_codex_and_child_process(tmp_path, monkeypatch):
     worker = threading.Thread(target=lambda: output.extend(be.stream("wait")))
     worker.start()
     deadline = time.monotonic() + 3
-    while not child_file.exists() and time.monotonic() < deadline:
+    child_text = ""
+    while time.monotonic() < deadline:
+        if child_file.exists():
+            child_text = child_file.read_text().strip()
+            if child_text.isdigit():
+                break
         time.sleep(0.02)
-    assert child_file.exists(), "fake Codex child never started"
-    child_pid = int(child_file.read_text())
+    assert child_text.isdigit(), "fake Codex child never published its PID"
+    child_pid = int(child_text)
     assert be._proc is not None
     leader_pid = be._proc.pid
     be.cancel()

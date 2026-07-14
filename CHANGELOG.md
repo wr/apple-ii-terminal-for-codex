@@ -7,7 +7,9 @@
 - Added required Git work directories plus `workspace-write` and `read-only` sandbox modes.
 - Isolated pairing state with the `CDXTK1` token format, TCP port 6401, and modem phonebook entry 1.
 - Renamed and rebranded both native clients. The release artifact is `CODEX.dsk`, containing `CODEX` and `CODEX8`.
-- Added Patch, an original four-color terminal mechanic, plus CODEX dial cues.
+- Added an animated monochrome `>_` identity, plus CODEX dial cues.
+- Added the Codex-style model, directory, and permissions header and Working status.
+- Added distinct WiModem `ERROR`, `BUSY`, `NO CARRIER`, `NO ANSWER`, and timeout guidance.
 - Removed old provider artwork and demo media.
 - Added security, physical-disk, attribution, and release-gate documentation.
 

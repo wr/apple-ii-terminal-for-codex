@@ -1,6 +1,6 @@
 # Third-party notices
 
-The MIT license in [LICENSE](LICENSE) covers this project's code and original Patch artwork. It does not relicense the Apple DOS material in the repository or the derived release disk.
+The MIT license in [LICENSE](LICENSE) covers this project's code and original `>_` artwork. It does not relicense the Apple DOS material in the repository or the derived release disk.
 
 ## Apple DOS 3.3 System Master, January 1983
 

@@ -56,7 +56,17 @@ For incompatible slot syntax, open **Modem**, dial the host manually, press Esc 
 
 ## Troubleshooting
 
-Check these in order:
+The native client keeps the modem's raw response visible and adds a short diagnosis:
+
+| Result | What the client suggests |
+|---|---|
+| `ERROR` | Save entry 1 with `AT&Z1=host:6401`, then `AT&W` |
+| `BUSY` | The bridge or destination is occupied; retry |
+| `NO CARRIER` | Check entry 1, the bridge process, and WiFi |
+| `NO ANSWER` | Check that the bridge is listening on port 6401 |
+| No response | Check the modem connection and 9600 8N1 settings |
+
+Then check these in order:
 
 1. On an SSC, point the jumper block arrow to MODEM and use slot 2.
 2. Confirm DCD is asserted. On WiModem firmware, `AT*D1` may correct its polarity; save with `AT&W`.
@@ -64,6 +74,6 @@ Check these in order:
 4. Match both ends at 9600 8N1.
 5. Remove any null-modem adapter.
 6. Send `ATE0` and `AT&W` if every typed character appears twice.
-7. An immediate `ERROR` usually means the modem rejected `ATDS=1` or entry 1 was not saved.
+7. An immediate `ERROR` usually means entry 1 was not saved or the modem rejected `ATDS=1`.
 
 The listener is plaintext and LAN-reachable by default. Do not port-forward it. See [SECURITY.md](../SECURITY.md).

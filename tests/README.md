@@ -7,7 +7,7 @@ Two layers: a pure-Python bridge test, and MAME runs that drive the real
 
 ```sh
 python3 -m pip install -r requirements-test.txt
-python3 -m pytest -q -m 'not codex_live' bridge tests apple2gs/test_patch_assets.py
+python3 -m pytest -q -m 'not codex_live' bridge tests apple2gs/test_codex_assets.py
 ```
 
 This runs the renderer, pairing, cancellation, terminal-protocol, error-hygiene,

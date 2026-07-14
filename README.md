@@ -2,7 +2,7 @@
 
 Run the authenticated Codex CLI from a real Apple II.
 
-`CODEX.dsk` boots every Apple II from the IIgs through the II+. The IIgs gets a four-color Super Hi-Res client with an animated Patch splash, transcript, spinner, and scrollback. The IIe, IIc, IIc Plus, and II/II+ use a plain-6502 text client from the same disk.
+`CODEX.dsk` boots every Apple II from the IIgs through the II+. The IIgs gets a monochrome Super Hi-Res client with an animated `>_` mark, a Codex-style session header, transcript, Working status, and scrollback. The IIe, IIc, IIc Plus, and II/II+ use a plain-6502 text client from the same disk.
 
 The Apple II handles the interface. A small Python bridge on your modern computer carries prompts to the installed Codex CLI and streams printable 7-bit text back over serial or a trusted LAN.
 
@@ -85,7 +85,7 @@ Useful controls:
 | `--no-pair` | Remove the gate; isolated networks only |
 | `--host 127.0.0.1` | Keep a TCP listener on the host only |
 
-The local slash commands are `/help`, `/new`, `/model`, and `/quit`. Ctrl-C during a think cancels the Codex subprocess and returns any partial reply. Ctrl-C at an idle prompt returns to the menu.
+The local slash commands are `/help`, `/new`, `/model`, and `/quit`. Esc or Ctrl-C during `Working` cancels the Codex subprocess and returns any partial reply. Ctrl-C at an idle prompt returns to the menu.
 
 ## Security boundary
 
@@ -127,7 +127,7 @@ The result is a reproducible 143,360-byte `apple2gs/CODEX.dsk` containing `CODEX
 
 ## Credits
 
-- Patch artwork and the Codex conversion are original project work.
+- The pixel `>_` artwork and the Codex conversion are original project work.
 - [UNSCII](http://viznut.fi/unscii/) by Viljami Salminen supplies the IIgs font under CC0.
 - [dos33fsprogs](https://github.com/deater/dos33fsprogs) by Vince Weaver builds the disk.
 - [KEGS](https://kegs.sourceforge.net/) and MAME support emulator testing.
