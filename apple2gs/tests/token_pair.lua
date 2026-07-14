@@ -1,16 +1,16 @@
 -- Token device-pairing test for the 8-bit client (Phase 4).
 --
--- Boots claude2 under MAME with an SSC wired to a listening bridge, drives
+-- Boots codex2 under MAME with an SSC wired to a listening bridge, drives
 -- the first-run pairing code, then asserts the bridge's CMD_TOKEN frame was
 -- captured and framed into the reserved sector buffer TOKBUF ($9000) in the
--- on-disk layout: magic "CLDTK1" | len | token | checksum.
+-- on-disk layout: magic "CDXTK1" | len | token | checksum.
 --
 -- Harness (mirrors tests/README.md; ROMs live in ~/.mame/roms):
 --   cd bridge && python3 bridge.py --telnet --port 6502 --app --backend chat \
 --        --cols 80 --pair-code ABCDEF &
 --   SDL_VIDEODRIVER=dummy TOKCODE=ABCDEF mame apple2ee -rompath ~/.mame/roms \
 --        -aux "" -sl2 ssc -sl2:ssc:rs232 null_modem \
---        -bitbanger socket.127.0.0.1:6502 -flop1 apple2gs/CLAUDE.dsk \
+--        -bitbanger socket.127.0.0.1:6502 -flop1 apple2gs/CODEX.dsk \
 --        -autoboot_script apple2gs/tests/token_pair.lua \
 --        -video none -sound none -nothrottle -seconds_to_run 200
 --
@@ -55,7 +55,7 @@ end
 local function magic_present()
   local s = ""
   for i = 0, 5 do s = s .. string.char(mem:read_u8(TOKBUF + i)) end
-  return s == "CLDTK1"
+  return s == "CDXTK1"
 end
 
 local function token_ok()

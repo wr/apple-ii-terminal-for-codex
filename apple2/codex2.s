@@ -1,7 +1,7 @@
 ; =====================================================================
-; claude2.s - text-mode client for 8-bit Apples: IIe, IIc, IIc Plus,
+; codex2.s - text-mode client for 8-bit Apples: IIe, IIc, IIc Plus,
 ; and II/II+ (40-col). Plain 6502 only - no 65C02 ops - so one binary
-; runs on everything. The IIgs gets the SHR client (claude.s); if this
+; runs on everything. The IIgs gets the SHR client (codex.s); if this
 ; binary finds itself on a GS it says so and exits.
 ;
 ; Serial: 6551 ACIA at the slot-2 addresses - which is both an Apple
@@ -17,7 +17,7 @@
 ; lines), 0x03 session over, 0x04 EOT.
 ; =====================================================================
 
-; ---- zero page (safe under Applesoft+DOS: see CLAUDE.md landmines)
+; ---- zero page (safe under Applesoft+DOS: see AGENTS.md landmines)
 ptr     = $06           ; screen row pointer
 src     = $08           ; scroll source pointer
 tmp     = $FA
@@ -169,7 +169,7 @@ entry:
         jmp     menu_screen
 
 ; the GS boots this disk into the SHR client via HELLO; landing here
-; means someone BRUNs COBJ8 on a GS by hand
+; means someone BRUNs CODEX8 on a GS by hand
 gs_bail:
         cli
         ldx     #0
@@ -1342,7 +1342,7 @@ spinner:
         cmp     #$03            ; Ctrl-C: ask the bridge to stop the turn
         bne     @nk
         lda     #$03            ; a bare byte on the wire; the bridge kills
-        jsr     aciaput         ; the claude turn and EOTs what it has
+        jsr     aciaput         ; the Codex turn and EOTs what it has
         jmp     @lp
 @esc:   lda     #1
         sta     quitflag
@@ -1549,7 +1549,7 @@ do_header:
 ; this runs pre-session (auto-send) or mid-pairing-reply (do_token); the
 ; only unavoidably-deaf stretch is inside RWTS itself (a monolithic DOS
 ; call), which can't be woven with rb_poll - see the report's caveat.
-; Sector layout: magic "CLDTK1"(6) | len(1) | token(len) | csum(1).
+; Sector layout: magic "CDXTK1"(6) | len(1) | token(len) | csum(1).
 ; csum = 8-bit sum of bytes [0 .. 6+len].
 ; =====================================================================
 
@@ -1685,7 +1685,7 @@ token_flush:
         sta     token_pending
 @done:  rts
 
-tok_magic:  .byte   "CLDTK1"
+tok_magic:  .byte   "CDXTK1"
 
 ; DOS 3.3 RWTS IOB (17 bytes) + DCT. Slot/drive are patched from DOS's own
 ; boot IOB by tok_init_dev. Layout per Beneath Apple DOS ch.6.
@@ -1747,6 +1747,7 @@ page_instr:
         STR     str_ins_4, 2, 7
         STR     str_ins_5, 2, 9
         STR     str_ins_6, 2, 11
+        STR     str_ins_7, 2, 13
         STR     str_esc, 2, 22
 @k:     jsr     rb_poll
         lda     KBD
@@ -1757,26 +1758,27 @@ page_instr:
 ; =====================================================================
 ; strings
 ; =====================================================================
-str_title:  .byte "Welcome to Terminal for Claude Code",0
+str_title:  .byte "Welcome to Terminal for Codex",0
 str_sub:    .byte "for Apple II - v1.1.0",0
 str_by:     .byte "by Wells Workshop",0
 str_dial:   .byte "Dialing...",0
 str_nocarr: .byte "* connection lost - back to menu",0
 str_dfail:  .byte "Dial failed - try the modem console",0
-str_atd:    .byte "ATDS=0",0
+str_atd:    .byte "ATDS=1",0
 str_ato:    .byte "ATO",0                 ; resume the data link on a skip-dial reconnect
 str_quit:   .byte "/quit"
 str_exit:   .byte "/exit"
-str_gs:     .byte "THIS IS THE 8-BIT CLIENT - ON A IIGS RUN: BRUN COBJ",$0D,0
+str_gs:     .byte "THIS IS THE 8-BIT CLIENT - ON A IIGS RUN: BRUN CODEX",$0D,0
 str_mdm_t:  .byte "Hayes AT console",0
 str_mdm_h:  .byte "Keys go straight to the modem. Esc = menu.",0
 str_ins_t:  .byte "Instructions",0
-str_ins_1:  .byte "Talk to Claude Code from this Apple II, over a WiFi modem.",0
+str_ins_1:  .byte "Talk to Codex from this Apple II, over a WiFi modem.",0
 str_ins_2:  .byte "The bridge (on a modern computer):",0
-str_ins_3:  .byte " github.com/wr/apple-ii-terminal-for-claude-code",0
-str_ins_4:  .byte " python3 bridge.py --telnet --app --backend code",0
-str_ins_5:  .byte "Modem: store entry 0 (AT&Z0=host:6400 then AT&W).",0
-str_ins_6:  .byte "Connect on the menu dials ATDS=0 and starts the session.",0
+str_ins_3:  .byte " github.com/wr/apple-ii-terminal-for-codex",0
+str_ins_4:  .byte " python3 bridge.py --telnet --app --workdir REPO",0
+str_ins_5:  .byte "Modem: store entry 1 (AT&Z0=host:6401 then AT&W).",0
+str_ins_6:  .byte "Connect on the menu dials ATDS=1 and starts the session.",0
+str_ins_7:  .byte "In session: /new /model /help /quit, Ctrl-C.",0
 str_esc:    .byte "Any key returns to the menu",0
 sp_glyphs:  .byte "*+:+"
 menu_ptrs:  .word mi0, mi1, mi2, mi3

@@ -1,5 +1,5 @@
 """Fake Hayes modem for MAME's bitbanger socket: answers the client's
-ATDS=0 with CONNECT (or BUSY) shortly after, logging what it hears."""
+ATDS=1 with CONNECT (or BUSY) shortly after, logging what it hears."""
 import socket, sys, time
 
 verdict = sys.argv[1] if len(sys.argv) > 1 else "CONNECT"
@@ -19,8 +19,8 @@ while True:
             break
         buf += b
         print(f"fake modem: rx {b!r}", flush=True)
-        if b"ATDS=0\r" in buf:
-            buf = buf.replace(b"ATDS=0\r", b"")
+        if b"ATDS=1\r" in buf:
+            buf = buf.replace(b"ATDS=1\r", b"")
             # reply immediately: with -nothrottle, wall-clock delays overshoot
             # the emulated dial window entirely
             conn.sendall(verdict.encode() + b"\r\n")

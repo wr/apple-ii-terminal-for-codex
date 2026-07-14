@@ -304,7 +304,7 @@ class TestRequirePairing(unittest.TestCase):
     def test_dial_string_and_chatter_not_a_guess(self):
         pm, path = make_pm("ABC234")
         try:
-            r, _ = run_pairing(pm, feed=b"ATDS=0\rCONNECT 9600\rABC234\r")
+            r, _ = run_pairing(pm, feed=b"ATDS=1\rCONNECT 9600\rABC234\r")
             self.assertTrue(r)
             # the dial/chatter lines must not have burned guesses
             self.assertEqual(pm._fails.get(FakeChannel.peer, [0])[0], 0)
@@ -355,9 +355,9 @@ class TestInputBound(unittest.TestCase):
         t = threading.Thread(target=go, daemon=True)
         t.start()
         time.sleep(0.05)
-        ch.feed(b"hello claude\r")
+        ch.feed(b"hello codex\r")
         t.join(timeout=4)
-        self.assertEqual(box["line"], "hello claude")
+        self.assertEqual(box["line"], "hello codex")
 
 
 import re

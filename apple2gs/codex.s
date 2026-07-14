@@ -1,4 +1,4 @@
-; CLAUDE ][ GS - SHR graphics client (640 mode, 4 colors, 80x25 text).
+; CODEX ][ GS - SHR graphics client (640 mode, 4 colors, 80x25 text).
 ; Scrolling transcript + pinned input box + serial link to the bridge.
 ; Targets the IIgs SCC (slot 2, channel B) as used by KEGS Incoming mode.
 ; Loaded by DOS 3.3 BRUN at $4000; runs in 65816 native mode.
@@ -1108,7 +1108,7 @@ bm_lp:  jsr     rb_poll
         bne     bm_lp
 bm_x:   rts
 
-; modem_dial - unconditionally send "ATDS=0" CR (dial phone book entry 0).
+; modem_dial - unconditionally send "ATDS=1" CR (dial phone book entry 1).
 ;   No connected-check: a probe can't work, because in command mode the
 ;   modem ECHOES the probe byte and the echo is indistinguishable from an
 ;   answer. Instead: command mode -> the modem dials; already online ->
@@ -1119,7 +1119,7 @@ modem_dial:
         .a8
         .i8
         lda     #$0D            ; flush half-typed junk on the modem first -
-        jsr     sccput          ;   "foo" + our dial would send fooATDS=0
+        jsr     sccput          ;   "foo" + our dial would send fooATDS=1
         ldy     #15             ; ~250ms for the modem to answer the flush
 md_fl:  jsr     vbl_edge
         dey
@@ -1251,7 +1251,7 @@ db_nl:  stz     mdm_c1
 db_x:   rts
 
 dial_str:
-        .byte   "ATDS=0",0
+        .byte   "ATDS=1",0
 
 str_ato:
         .byte   "ATO",0                  ; resume the data link on a skip-dial reconnect
@@ -1479,7 +1479,7 @@ sp_lp:
         cmp     #$03            ; Ctrl-C: ask the bridge to stop the turn
         bne     sp_nk
         lda     #$03            ; a bare byte on the wire; the bridge kills
-        jsr     sccput          ; the claude turn and EOTs what it has
+        jsr     sccput          ; the Codex turn and EOTs what it has
         bra     sp_nk
 sp_esc: lda     #1
         sta     quitflag
@@ -1905,7 +1905,7 @@ ci_x:
 ; (sep #$30) and rep #$30 back to the client's 16-bit convention before rts,
 ; per the 65816 width rule. The only unavoidably-deaf stretch is inside RWTS
 ; itself, which can't be woven with rb_poll - see the report caveat.
-; Sector layout: magic "CLDTK1"(6) | len(1) | token(len) | csum(1).
+; Sector layout: magic "CDXTK1"(6) | len(1) | token(len) | csum(1).
 ; csum = 8-bit sum (mod 256) of bytes [0 .. 6+len]. Byte-identical to the
 ; 8-bit client so a token is portable between clients.
 ; =====================================================================
@@ -2074,7 +2074,7 @@ token_flush:
 tf_done:
         rts
 
-tok_magic:  .byte   "CLDTK1"
+tok_magic:  .byte   "CDXTK1"
 
 ; DOS 3.3 RWTS IOB (17 bytes) + DCT. Slot/drive are patched from DOS's own
 ; boot IOB by tok_init_dev. Layout per Beneath Apple DOS ch.6. This is data -
@@ -3020,8 +3020,8 @@ mt_x:   rts
 ; =====================================================================
 ; strings
 ; =====================================================================
-str_title:  .byte "Claude Code",0         ; placeholder until the real header lands
-str_welcome:.byte "Welcome to Terminal for Claude Code",0
+str_title:  .byte "Codex",0         ; placeholder until the real header lands
+str_welcome:.byte "Welcome to Terminal for Codex",0
 str_ver:    .byte "for Apple IIgs - v1.1.0",0
 str_by:     .byte "by Wells Workshop",0
 str_dial:   .byte "Dialing...",0
@@ -3037,26 +3037,26 @@ mi2:        .byte "3. Instructions",0
 mi3:        .byte "4. Quit to Basic",0
 str_mdm_t:  .byte "MODEM CONSOLE",0
 str_mdm_1:  .byte "Type Hayes AT commands; Return sends them, Esc returns to the menu.",0
-str_mdm_2:  .byte "Point entry 0 at your bridge and save:  AT&Z0=BRIDGE.IP:6400  then  AT&W",0
-str_mdm_3:  .byte "Connect on the menu dials  ATDS=0.  Test with  AT  (expect OK).",0
+str_mdm_2:  .byte "Point entry 1 at your bridge and save:  AT&Z0=BRIDGE.IP:6401  then  AT&W",0
+str_mdm_3:  .byte "Connect on the menu dials  ATDS=1.  Test with  AT  (expect OK).",0
 str_mdm_4:  .byte "Esc returns to the menu",0
-str_ins_t:  .byte "TERMINAL FOR CLAUDE CODE",0
-str_ins_1:  .byte "Talk to Claude Code from a real Apple II, over a WiFi modem.",0
+str_ins_t:  .byte "TERMINAL FOR CODEX",0
+str_ins_1:  .byte "Talk to Codex from a real Apple II, over a WiFi modem.",0
 str_ins_b0: .byte "THE BRIDGE (runs on a modern computer):",0
-str_ins_b1: .byte "  download: github.com/wr/apple-ii-terminal-for-claude-code",0
-str_ins_b2: .byte "  run:  python3 bridge.py --telnet --app --backend code",0
-str_ins_b3: .byte "  it listens for your modem on TCP port 6400.",0
+str_ins_b1: .byte "  download: github.com/wr/apple-ii-terminal-for-codex",0
+str_ins_b2: .byte "  run:  python3 bridge.py --telnet --app --workdir REPO",0
+str_ins_b3: .byte "  it listens for your modem on TCP port 6401.",0
 str_ins_m0: .byte "THE MODEM (any Hayes-compatible, e.g. WiModem232):",0
 str_ins_m1: .byte "  join it to your WiFi, then store the bridge address:",0
-str_ins_m2: .byte "    AT&Z0=BRIDGE.IP:6400  then  AT&W    (use the Modem console)",0
+str_ins_m2: .byte "    AT&Z0=BRIDGE.IP:6401  then  AT&W    (use the Modem console)",0
 str_ins_m3: .byte "  after that, Connect dials it automatically.",0
 str_ins_s0: .byte "SERIAL:",0
 str_ins_s1: .byte "  IIgs modem port, 9600 8N1 - this client sets that up itself.",0
-str_ins_u1: .byte "In session: /new /mode /help /quit, Ctrl-C. Arrows scroll. Ctrl-Reset quits.",0
+str_ins_u1: .byte "In session: /new /model /help /quit, Ctrl-C. Arrows scroll. Ctrl-Reset quits.",0
 str_ins_u2: .byte "Wells Workshop",0
 str_anykey: .byte "press any key to return",0
 str_model:  .byte "",0
-str_link:   .byte "Apple II <-> Claude Code",0
+str_link:   .byte "Apple II <-> Codex",0
 str_prompt: .byte "> ",0
 
 linebuf:    .res 128
