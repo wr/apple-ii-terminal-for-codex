@@ -177,12 +177,18 @@ def emit_bullet():
     return "bullet_data:\n    .byte " + ",".join(f"${b:02X}" for b in rows)
 
 
+FONT_OVERRIDES = {
+    ord(">"): [0xC0, 0x30, 0x0C, 0x03, 0x0C, 0x30, 0xC0, 0x00],
+    ord("_"): [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7E, 0x00],
+}
+
+
 def emit_font():
     glyphs = load_unscii()
     blank = [0] * 8
     lines = ["FONT_FIRST = 32", "font_data:"]
     for code in range(32, 127):
-        rowbytes = glyphs.get(code, blank)
+        rowbytes = FONT_OVERRIDES.get(code, glyphs.get(code, blank))
         lines.append(f"    ; '{chr(code)}'")
         lines.append("    .byte " + ",".join(f"${b:02X}" for b in rowbytes))
     return "\n".join(lines)
