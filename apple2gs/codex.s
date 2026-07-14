@@ -72,6 +72,7 @@ DIAL_NO_ANSWER = 5
 
 ; ---- pairing token: retained in RAM for reconnects during this boot.
 TOKBUF     = $9000     ; length at +6, token bytes at +7
+HDRBUF     = $9200     ; four 80-byte slots: length byte + rendered text
 
 ; ---- scrollback ring buffer (bank $02): each line = 80 cells of (char,color) ----
 BUF_BANK   = $02
@@ -1743,14 +1744,9 @@ rr_done:
 do_header:
         .a8
         .i8
+        jsr     hdr_capture     ; drain the SCC before any slow pixel drawing
         lda     header_locked
         beq     dh_draw
-        lda     #HEADER_LINES
-        sta     hdr_row
-dh_skip:
-        jsr     hdr_skipline
-        dec     hdr_row
-        bne     dh_skip
         rts
 dh_draw:
         rep     #$20            ; save cursor (transcript or input)
@@ -1762,6 +1758,12 @@ dh_draw:
         sep     #$20
         .a8
         TEXT    hdr_border, 0, 0, 1
+        rep     #$20
+        .a16
+        lda     #HDRBUF
+        sta     tmp2
+        sep     #$20
+        .a8
         lda     #1
         sta     hdr_row
 dh_line:
@@ -1787,6 +1789,7 @@ dh_line:
         sta     txtcolor        ; title row is white
 dh_gray:
         jsr     hdr_readline
+        jsr     hdr_advance
         inc     hdr_row
         lda     hdr_row
         cmp     #(HEADER_LINES+1)
@@ -1804,26 +1807,71 @@ dh_gray:
         sta     txtcolor
         rts
 
-; hdr_readline - draw through col 78, consume overflow, pad, then close with |.
-hdr_readline:
+; hdr_capture - read all four lines into fixed RAM slots before drawing. A full
+; SHR glyph is slow enough to overflow the real SCC's three-byte FIFO, so the
+; receive phase and render phase must stay separate.
+hdr_capture:
+        rep     #$20
+        .a16
+        lda     #HDRBUF
+        sta     tmp2
+        sep     #$20
         .a8
-        .i8
-hrl_lp:
+        lda     #HEADER_LINES
+        sta     hdr_row
+hc_line:
+        ldy     #1              ; slot byte 0 holds the captured length
+hc_byte:
         jsr     getbyte
         and     #$7F
         cmp     #$0D
-        beq     hrl_pad
+        beq     hc_done
         cmp     #$20
-        bcc     hrl_lp
+        bcc     hc_byte
         cmp     #$7F
-        bcs     hrl_lp
+        bcs     hc_byte
+        cpy     #78             ; 77 chars fit between "| " and the closing "|"
+        bcs     hc_byte         ; keep draining overflow through CR
+        sta     (tmp2),y
+        iny
+        bra     hc_byte
+hc_done:
+        tya
+        dec     a
+        ldy     #0
+        sta     (tmp2),y
+        jsr     hdr_advance
+        dec     hdr_row
+        bne     hc_line
+        rts
+
+; Advance tmp2 to the next 80-byte header slot. Enters/exits .a8/.i8.
+hdr_advance:
         rep     #$20
         .a16
-        lda     curcol
-        cmp     #79
+        lda     tmp2
+        clc
+        adc     #80
+        sta     tmp2
         sep     #$20
         .a8
-        bcs     hrl_lp
+        rts
+
+; hdr_readline - draw the captured slot, pad through col 78, then close with |.
+hdr_readline:
+        .a8
+        .i8
+        ldy     #0
+        lda     (tmp2),y
+        sta     hdr_len
+        stz     hdr_pos
+hrl_lp:
+        lda     hdr_pos
+        cmp     hdr_len
+        beq     hrl_pad
+        inc     hdr_pos
+        tay
+        lda     (tmp2),y
         jsr     putchar
         bra     hrl_lp
 hrl_pad:
@@ -1839,17 +1887,6 @@ hrl_pad:
         bra     hrl_pad
 hrl_x:  lda     #'|'
         jsr     putchar
-        rts
-
-; hdr_skipline - read and discard SCC bytes until CR
-hdr_skipline:
-        .a8
-        .i8
-hsk_lp:
-        jsr     getbyte
-        and     #$7F
-        cmp     #$0D
-        bne     hsk_lp
         rts
 
 ; check_incoming - non-blocking: draw a header frame the bridge sent while idle
@@ -2908,6 +2945,8 @@ anim_cd:    .res 1          ; menu backdrop: vblanks left on current frame
 hsavecol:   .res 2          ; do_header: saved cursor
 hsaverow:   .res 2
 hdr_row:    .res 1          ; do_header: payload row/count
+hdr_len:    .res 1          ; captured chars in the current header slot
+hdr_pos:    .res 1          ; current character within that slot
 dv_r:       .res 1          ; draw_view: current screen row
 vdelta:     .res 1          ; draw_view: lines back from head
 vln:        .res 1          ; draw_view: buffer line being drawn

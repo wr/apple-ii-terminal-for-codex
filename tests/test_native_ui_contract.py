@@ -29,6 +29,16 @@ def test_menu_title_is_centered_for_its_29_character_width():
     assert "sbc     #29" in eight_bit
 
 
+def test_gs_buffers_the_complete_header_before_drawing_it():
+    source = Path("apple2gs/codex.s").read_text()
+    header = source.split("do_header:", 1)[1].split("check_incoming:", 1)[0]
+    reader = header.split("hdr_readline:", 1)[1].split("check_incoming:", 1)[0]
+
+    assert "HDRBUF" in source
+    assert header.index("jsr     hdr_capture") < header.index("TEXT    hdr_border")
+    assert "getbyte" not in reader
+
+
 def test_escape_and_ctrl_c_share_one_inflight_interrupt_path():
     for source in SOURCES:
         text = source.read_text()
