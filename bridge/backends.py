@@ -15,8 +15,8 @@ from typing import Iterator
 
 try:
     import tomllib
-except ModuleNotFoundError:  # Python 3.10: omit the optional effort label
-    tomllib = None
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 
 MIN_CODEX_VERSION = (0, 144, 1)
@@ -85,8 +85,6 @@ def _doctor_model(codex_bin: str, sandbox: str) -> str | None:
 
 def _configured_effort() -> str | None:
     """Read only the optional top-level reasoning-effort setting."""
-    if tomllib is None:
-        return None
     home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
     with (home / "config.toml").open("rb") as stream:
         value = tomllib.load(stream).get("model_reasoning_effort")

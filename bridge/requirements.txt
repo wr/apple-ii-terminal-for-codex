@@ -1,2 +1,5 @@
-# Core bridge has no third-party dependency. Serial transport is optional.
+# Python 3.10 compatibility for reading Codex's config.toml.
+tomli==2.2.1; python_version < "3.11"
+
+# Serial transport is optional.
 -r requirements-serial.txt

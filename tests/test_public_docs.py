@@ -37,6 +37,11 @@ def test_ci_installs_the_preview_test_dependency():
     assert "Pillow==12.3.0" in requirements
 
 
+def test_bridge_supports_reading_toml_on_python_310():
+    requirements = Path("bridge/requirements.txt").read_text().splitlines()
+    assert 'tomli==2.2.1; python_version < "3.11"' in requirements
+
+
 def test_v010_release_docs_match_current_product_state():
     changelog = Path("CHANGELOG.md").read_text()
     license_text = Path("LICENSE").read_text()
