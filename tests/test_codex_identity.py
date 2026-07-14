@@ -14,6 +14,18 @@ def test_native_clients_have_codex_identity_and_isolated_dial_token():
         assert "Claude Code" not in text
 
 
+def test_phonebook_setup_uses_codex_entry_one_everywhere():
+    paths = [
+        Path("bridge/bridge.py"),
+        Path("apple2gs/codex.s"),
+        Path("apple2/codex2.s"),
+    ]
+    for path in paths:
+        text = path.read_text()
+        assert "AT&Z1=" in text, path
+        assert "AT&Z0=" not in text, path
+
+
 def test_native_help_lists_only_local_commands():
     for path in (Path("apple2gs/codex.s"), Path("apple2/codex2.s")):
         text = path.read_text()

@@ -63,6 +63,12 @@ CMD_QUIT   = $03       ; in-band: bridge says session over -> back to the menu
 CMD_TOKEN  = $05       ; in-band: bridge issues a device token; we store it to disk
 CMD_HEADER = $0E       ; in-band: header frame follows (title CR subtitle CR)
 
+DIAL_CONNECT = 1
+DIAL_ERROR = 2
+DIAL_BUSY = 3
+DIAL_NO_CARRIER = 4
+DIAL_NO_ANSWER = 5
+
 ; ---- token sector (device pairing): RWTS a reserved sector on the boot disk.
 ;   RWTS is 8-bit DOS code (never touches M/X or the e-bit), so the token
 ;   helpers run in native 8-bit mode (sep #$30). Entry $BD00, the IOB/DCT
@@ -348,14 +354,15 @@ ac_rx:  jsr     havebyte        ; classify any modem chatter from this beat
         bra     ac_rx           ; leave evidence on the screen
 ac_ck:  plx
         lda     dialres
-        cmp     #1              ; CONNECT -> settled; let the theater end
+        cmp     #DIAL_CONNECT   ; CONNECT -> settled; let the theater end
         beq     ac_hold
-        cmp     #2              ; ERROR/BUSY/NO x -> say so, back to menu
-        beq     ac_fail
+        cmp     #DIAL_ERROR     ; any modem failure -> explain, back to menu
+        bcs     ac_fail
         dex
         bne     ac_lp
-        ; 3s of silence = no modem in the path (KEGS) or already online:
-        ; proceed - through the same ring-out as a fast CONNECT
+        ; A direct emulator bridge answers ATDS=1 with CONNECT. Silence now
+        ; means the modem/serial path itself is not responding.
+        jmp     ac_fail
         ; A fast modem answers mid-theater; a buzz chopped at half a note
         ; reads as a glitch, not carrier detect (W-517). The verdict is in,
         ; so stop classifying - just drain rx and let the stream finish.
@@ -376,7 +383,29 @@ ac_fail:
         jsr     music_stop
         lda     #21
         jsr     clear_rowA
-        TEXT    str_dfail, 21, 21, 2
+        lda     dialres
+        cmp     #DIAL_ERROR
+        beq     af_error
+        cmp     #DIAL_BUSY
+        beq     af_busy
+        cmp     #DIAL_NO_CARRIER
+        beq     af_carrier
+        cmp     #DIAL_NO_ANSWER
+        beq     af_answer
+        TEXT    str_dtimeout, 18, 21, 2
+        bra     af_wait
+af_error:
+        TEXT    str_derror, 21, 21, 2
+        bra     af_wait
+af_busy:
+        TEXT    str_dbusy, 24, 21, 2
+        bra     af_wait
+af_carrier:
+        TEXT    str_dcarrier, 19, 21, 2
+        bra     af_wait
+af_answer:
+        TEXT    str_danswer, 21, 21, 2
+af_wait:
         ldy     #200            ; leave it up ~3.3s, then back to the menu
 af_w:   jsr     vbl_edge
         dey
@@ -1207,47 +1236,69 @@ dial_echo:
         sta     dcol
 @x:     rts
 
-; dial_byte - classify modem response lines during the dial window, one
-; rx byte at a time. First letter E(RROR)/B(USY) or "NO.." = fail,
-; "CO.." (CONNECT) = success; "OK"/"RING"/anything else is ignored.
-; Sets dialres: 1 = connect, 2 = fail. Silence leaves it 0.
+; dial_byte - buffer one modem response line, fold ASCII to uppercase, and
+; classify its complete verdict at CR. The 11-byte buffer is enough for every
+; result prefix we inspect; longer text is ignored until CR.
 dial_byte:
         .a8
         .i8
         and     #$7F
         cmp     #$0D
-        beq     db_nl
+        beq     db_line
         cmp     #$20
         bcc     db_x            ; other control bytes: ignore
+        cmp     #'a'
+        bcc     db_store
+        cmp     #('z'+1)
+        bcs     db_store
+        and     #$DF            ; lower-case modem firmware -> upper-case
+db_store:
         ldx     mdm_c1
-        bne     db_c2
-        sta     mdm_c1          ; first printable of the line
+        cpx     #10
+        bcs     db_x
+        sta     mdm_line,x
+        inx
+        stx     mdm_c1
+        rts
+db_line:
+        ldx     mdm_c1
+        beq     db_reset
+        stz     mdm_line,x
+        lda     mdm_line
+        cmp     #'C'
+        beq     db_connect
         cmp     #'E'
-        beq     db_fail
+        beq     db_error
         cmp     #'B'
-        beq     db_fail
-        rts
-db_c2:  cpx     #$FF            ; line already classified/consumed
-        beq     db_x
-        pha
-        lda     #$FF            ; consume the rest of the line either way
-        sta     mdm_c1
-        pla
-        cmp     #'O'            ; second char must be O for CONNECT / NO x
-        bne     db_x
-        cpx     #'C'
-        beq     db_conn
-        cpx     #'N'
-        beq     db_fail
-        rts
-db_conn:
-        lda     #1
-        sta     dialres
-        rts
-db_fail:
-        lda     #2
-        sta     dialres
-db_nl:  stz     mdm_c1
+        beq     db_busy
+        cmp     #'N'
+        bne     db_reset
+        lda     mdm_line+3       ; "NO CARRIER" / "NO ANSWER"
+        cmp     #'C'
+        beq     db_carrier
+        cmp     #'A'
+        beq     db_answer
+        bra     db_reset
+db_connect:
+        lda     mdm_line+1
+        cmp     #'O'
+        bne     db_reset
+        lda     #DIAL_CONNECT
+        bra     db_set
+db_error:
+        lda     #DIAL_ERROR
+        bra     db_set
+db_busy:
+        lda     #DIAL_BUSY
+        bra     db_set
+db_carrier:
+        lda     #DIAL_NO_CARRIER
+        bra     db_set
+db_answer:
+        lda     #DIAL_NO_ANSWER
+db_set: sta     dialres
+db_reset:
+        stz     mdm_c1
 db_x:   rts
 
 dial_str:
@@ -3025,7 +3076,11 @@ str_welcome:.byte "Welcome to Terminal for Codex",0
 str_ver:    .byte "for Apple IIgs - v1.1.0",0
 str_by:     .byte "by Wells Workshop",0
 str_dial:   .byte "Dialing...",0
-str_dfail:  .byte "Dial failed - try the modem console",0
+str_derror: .byte "ERROR: use AT&Z1=HOST:6401",0
+str_dbusy:  .byte "BRIDGE IS BUSY - try again",0
+str_dcarrier:.byte "NO CARRIER: check entry 1, bridge, and WiFi",0
+str_danswer:.byte "NO ANSWER: check that the bridge is listening",0
+str_dtimeout:.byte "NO MODEM RESPONSE: check 9600 8N1",0
 str_quit:   .byte "/quit"                 ; matched locally in the main loop
 str_exit:   .byte "/exit"                 ; same length, same treatment
 str_nocarr: .byte "* connection lost - back to menu",0
@@ -3037,7 +3092,7 @@ mi2:        .byte "3. Instructions",0
 mi3:        .byte "4. Quit to Basic",0
 str_mdm_t:  .byte "MODEM CONSOLE",0
 str_mdm_1:  .byte "Type Hayes AT commands; Return sends them, Esc returns to the menu.",0
-str_mdm_2:  .byte "Point entry 1 at your bridge and save:  AT&Z0=BRIDGE.IP:6401  then  AT&W",0
+str_mdm_2:  .byte "Point entry 1 at your bridge and save:  AT&Z1=BRIDGE.IP:6401  then  AT&W",0
 str_mdm_3:  .byte "Connect on the menu dials  ATDS=1.  Test with  AT  (expect OK).",0
 str_mdm_4:  .byte "Esc returns to the menu",0
 str_ins_t:  .byte "TERMINAL FOR CODEX",0
@@ -3048,7 +3103,7 @@ str_ins_b2: .byte "  run:  python3 bridge.py --telnet --app --workdir REPO",0
 str_ins_b3: .byte "  it listens for your modem on TCP port 6401.",0
 str_ins_m0: .byte "THE MODEM (any Hayes-compatible, e.g. WiModem232):",0
 str_ins_m1: .byte "  join it to your WiFi, then store the bridge address:",0
-str_ins_m2: .byte "    AT&Z0=BRIDGE.IP:6401  then  AT&W    (use the Modem console)",0
+str_ins_m2: .byte "    AT&Z1=BRIDGE.IP:6401  then  AT&W    (use the Modem console)",0
 str_ins_m3: .byte "  after that, Connect dials it automatically.",0
 str_ins_s0: .byte "SERIAL:",0
 str_ins_s1: .byte "  IIgs modem port, 9600 8N1 - this client sets that up itself.",0
@@ -3086,6 +3141,7 @@ dcd_trust:  .res 1          ; DCD has read "no carrier" once: the pin is live
 muteflag:   .res 1          ; Ctrl-C during recv_reply: drain without drawing
 token_pending: .res 1       ; do_token framed a token: token_flush writes it at idle
 mdm_c1:     .res 1          ; dial window: first char of current rx line
+mdm_line:   .res 11         ; uppercase modem result prefix, NUL-terminated
 dcol:       .res 1          ; dial window: echo column on row 22
 mus_cd0:    .res 1          ; voice 0: vblanks left on current note
 mus_cd1:    .res 1          ; voice 1: vblanks left on current note

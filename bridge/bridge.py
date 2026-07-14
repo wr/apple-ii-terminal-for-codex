@@ -118,10 +118,10 @@ def print_banner(args, transport, pm=None) -> None:
         if ip:  # the address lives in the command - no need to say it twice
             row("one-time modem setup:",
                 f"{GRAY}one-time modem setup:{OFF}")
-            # one per line: &Z0= swallows the rest of its line, so
+            # one per line: &Z1= swallows the rest of its line, so
             # suggesting them side by side would store garbage
-            row(f"AT&Z0={ip}:{args.port}",
-                f"{BOLD}AT&Z0={ip}:{args.port}{OFF}")
+            row(f"AT&Z1={ip}:{args.port}",
+                f"{BOLD}AT&Z1={ip}:{args.port}{OFF}")
             row("AT&W", f"{BOLD}AT&W{OFF}")
         else:
             row(f"listening on port {args.port}")
@@ -197,6 +197,16 @@ def is_modem_chatter(line: str) -> bool:
     return u.startswith("CONNECT ") and u[8:].strip().isdigit()
 
 
+def _ack_direct_dial(term: Terminal, line: str, app: bool) -> bool:
+    """Emulate a modem verdict when a native emulator is wired straight in."""
+    upper = line.upper()
+    if upper.startswith("ATD"):
+        if app:
+            term.write_line("CONNECT")
+        return True
+    return upper.startswith("ATO")
+
+
 def _header4(lines) -> tuple[str, str, str, str]:
     """Normalize every native header frame to the four lines clients consume."""
     values = tuple(str(line) for line in lines)[:4]
@@ -246,7 +256,7 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode,
             log("channel closed by peer", peer=peer)
             return
         user = user.strip()
-        if user.upper().startswith(("ATD", "ATO")):
+        if _ack_direct_dial(term, user, args.app):
             # Dial (ATD) / resume-online (ATO) strings: the client sends these to
             # the modem, but when the modem is already in data mode they pass
             # through to us as a line - swallow them, never a prompt.
@@ -680,7 +690,7 @@ def require_pairing(term: Terminal, args, pm: PairingManager) -> bool:
         if line is None:
             return False
         line = line.strip()
-        if line.upper().startswith(("ATD", "ATO")):
+        if _ack_direct_dial(term, line, args.app):
             continue  # the client's dial / resume-online commands aren't a guess
         if is_modem_chatter(line):
             log(f"modem chatter ignored: {line!r}", peer=peer)

@@ -63,6 +63,12 @@ CMD_QUIT   = $03
 CMD_TOKEN  = $05        ; app mode: bridge issues a device token; we store it
 CMD_HEADER = $0E
 
+DIAL_CONNECT = 1
+DIAL_ERROR = 2
+DIAL_BUSY = 3
+DIAL_NO_CARRIER = 4
+DIAL_NO_ANSWER = 5
+
 ; ---- layout (matches the GS client's shape)
 TOPROW  = 6             ; transcript window
 BTMROW  = 20
@@ -827,13 +833,13 @@ act_connect:
 @ck:    pla
         tax
         lda     dialres
-        cmp     #1
+        cmp     #DIAL_CONNECT
         beq     @hold           ; CONNECT: settled - let the theater end
-        cmp     #2
-        beq     @fail           ; ERROR/BUSY/NO x
+        cmp     #DIAL_ERROR
+        bcs     @fail           ; ERROR/BUSY/NO x
         dex
         bne     @beat
-        jmp     session_start   ; silence after 3s = emulator/already online
+        jmp     @fail           ; direct emulators receive synthetic CONNECT
         ; A fast modem answers mid-theater; a buzz chopped at half a note
         ; reads as a glitch, not carrier detect (W-517). The verdict is in,
         ; so stop classifying - play out the storyboard, still draining rx
@@ -853,7 +859,27 @@ act_connect:
 @sess:  jmp     session_start
 @fail:  lda     #INPUTR
         jsr     clear_rowA
-        STR     str_dfail, 2, INPUTR
+        lda     dialres
+        cmp     #DIAL_ERROR
+        beq     @ferr
+        cmp     #DIAL_BUSY
+        beq     @fbusy
+        cmp     #DIAL_NO_CARRIER
+        beq     @fcarrier
+        cmp     #DIAL_NO_ANSWER
+        beq     @fanswer
+        STR     str_dtimeout, 0, INPUTR
+        jmp     @fwait
+@ferr:  STR     str_derror, 0, INPUTR
+        jmp     @fwait
+@fbusy: STR     str_dbusy, 0, INPUTR
+        jmp     @fwait
+@fcarrier:
+        STR     str_dcarrier, 0, INPUTR
+        jmp     @fwait
+@fanswer:
+        STR     str_danswer, 0, INPUTR
+@fwait:
         ldx     #180            ; ~3s, back to the menu
 @fx:    jsr     frame_wait
         dex
@@ -965,41 +991,62 @@ bell_maybe:
         jmp     dtone
 @x:     rts
 
-; dial_byte - first-letter line classifier: E/B = fail, NO.. = fail,
-; CO.. = connect. Sets dialres 1/2. (Port of the GS routine.)
+; dial_byte - bounded, case-insensitive modem result classifier.
 dial_byte:
         and     #$7F
         cmp     #$0D
-        beq     @nl
+        beq     @line
         cmp     #$20
         bcc     @x
+        cmp     #'a'
+        bcc     @store
+        cmp     #('z'+1)
+        bcs     @store
+        and     #$DF
+@store:
         ldx     mdm_c1
-        bne     @c2
-        sta     mdm_c1
+        cpx     #10
+        bcs     @x
+        sta     mdm_line,x
+        inx
+        stx     mdm_c1
+        rts
+@line:  ldx     mdm_c1
+        beq     @reset
+        lda     #0
+        sta     mdm_line,x
+        lda     mdm_line
+        cmp     #'C'
+        beq     @connect
         cmp     #'E'
-        beq     @fail
+        beq     @error
         cmp     #'B'
-        beq     @fail
-        rts
-@c2:    cpx     #$FF
-        beq     @x
-        pha
-        lda     #$FF
-        sta     mdm_c1
-        pla
+        beq     @busy
+        cmp     #'N'
+        bne     @reset
+        lda     mdm_line+3
+        cmp     #'C'
+        beq     @carrier
+        cmp     #'A'
+        beq     @answer
+        jmp     @reset
+@connect:
+        lda     mdm_line+1
         cmp     #'O'
-        bne     @x
-        cpx     #'C'
-        beq     @conn
-        cpx     #'N'
-        beq     @fail
-        rts
-@conn:  lda     #1
-        sta     dialres
-        rts
-@fail:  lda     #2
-        sta     dialres
-@nl:    lda     #0
+        bne     @reset
+        lda     #DIAL_CONNECT
+        bne     @set
+@error: lda     #DIAL_ERROR
+        bne     @set
+@busy:  lda     #DIAL_BUSY
+        bne     @set
+@carrier:
+        lda     #DIAL_NO_CARRIER
+        bne     @set
+@answer:
+        lda     #DIAL_NO_ANSWER
+@set:   sta     dialres
+@reset: lda     #0
         sta     mdm_c1
 @x:     rts
 
@@ -1763,7 +1810,11 @@ str_sub:    .byte "for Apple II - v1.1.0",0
 str_by:     .byte "by Wells Workshop",0
 str_dial:   .byte "Dialing...",0
 str_nocarr: .byte "* connection lost - back to menu",0
-str_dfail:  .byte "Dial failed - try the modem console",0
+str_derror: .byte "ERROR: USE AT&Z1=HOST:6401",0
+str_dbusy:  .byte "BRIDGE IS BUSY - TRY AGAIN",0
+str_dcarrier:.byte "NO CARRIER: CHECK ENTRY 1/BRIDGE/WIFI",0
+str_danswer:.byte "NO ANSWER: CHECK BRIDGE IS LISTENING",0
+str_dtimeout:.byte "NO MODEM RESPONSE: CHECK 9600 8N1",0
 str_atd:    .byte "ATDS=1",0
 str_ato:    .byte "ATO",0                 ; resume the data link on a skip-dial reconnect
 str_quit:   .byte "/quit"
@@ -1776,7 +1827,7 @@ str_ins_1:  .byte "Talk to Codex from this Apple II, over a WiFi modem.",0
 str_ins_2:  .byte "The bridge (on a modern computer):",0
 str_ins_3:  .byte " github.com/wr/apple-ii-terminal-for-codex",0
 str_ins_4:  .byte " python3 bridge.py --telnet --app --workdir REPO",0
-str_ins_5:  .byte "Modem: store entry 1 (AT&Z0=host:6401 then AT&W).",0
+str_ins_5:  .byte "Modem: store entry 1 (AT&Z1=host:6401 then AT&W).",0
 str_ins_6:  .byte "Connect on the menu dials ATDS=1 and starts the session.",0
 str_ins_7:  .byte "In session: /new /model /help /quit, Ctrl-C.",0
 str_esc:    .byte "Any key returns to the menu",0
@@ -1811,6 +1862,7 @@ linelen:    .res 1
 menusel:    .res 1
 dialres:    .res 1
 mdm_c1:     .res 1
+mdm_line:   .res 11         ; uppercase modem result prefix, NUL-terminated
 dcd_trust:  .res 1          ; DCD has read "no carrier" once: the pin is live
 dcd_active: .res 1          ; nonzero if DCD read carrier at session start
 muteflag:   .res 1          ; Ctrl-C during recv_reply: drain without drawing
