@@ -60,7 +60,7 @@ HELP = [
 _TTY = sys.stdout.isatty()
 GRAY = "\x1b[38;5;245m" if _TTY else ""
 BOLD = "\x1b[1m" if _TTY else ""
-CORAL = "\x1b[38;5;209m" if _TTY else ""
+WHITE = "\x1b[97m" if _TTY else ""
 OFF = "\x1b[0m" if _TTY else ""
 
 def _line(peer, body: str) -> None:
@@ -87,7 +87,7 @@ def show_user(peer, text: str) -> None:
 def show_reply(peer, secs: float, nlines: int, mode: str) -> None:
     """Note that a reply went out - metadata only, not the text."""
     _line(peer or "client",
-          f"{CORAL}< {mode} reply sent · {secs:.1f}s · {nlines} lines{OFF}")
+          f"{WHITE}< {mode} reply sent · {secs:.1f}s · {nlines} lines{OFF}")
 
 
 def _lan_ip():
@@ -105,7 +105,7 @@ def _lan_ip():
 
 def print_banner(args, transport, pm=None) -> None:
     """The Codex welcome box, bridge edition: rounded border, the
-    title in the top rule, coral accents. Content is (plain, styled)
+    title in the top rule, white accents. Content is (plain, styled)
     pairs so padding is computed on visible length; every stock line is
     budgeted to keep the whole box inside 40 columns."""
     rows: list = []
@@ -134,11 +134,11 @@ def print_banner(args, transport, pm=None) -> None:
         if pm.pinned:
             row()
             row(f"pairing code: {pm.pinned}",
-                f"{GRAY}pairing code: {OFF}{BOLD}{CORAL}{pm.pinned}{OFF}")
+                f"{GRAY}pairing code: {OFF}{BOLD}{WHITE}{pm.pinned}{OFF}")
     elif args.telnet:  # --no-pair
         row()
         row("PAIRING OFF - anyone who can reach",
-            f"{BOLD}{CORAL}PAIRING OFF - anyone who can reach{OFF}")
+            f"{BOLD}{WHITE}PAIRING OFF - anyone who can reach{OFF}")
         row("this host gets a shell. Trusted LAN",
             f"{GRAY}this host gets a shell. Trusted LAN{OFF}")
         row("only.", f"{GRAY}only.{OFF}")
@@ -147,19 +147,19 @@ def print_banner(args, transport, pm=None) -> None:
     ver = " v1.1.0 "
     inner = max([len(p) + 4 for p, _ in rows] + [38])  # box is 40 wide
     print()
-    print(f"{CORAL}╭─{BOLD}{title}{OFF}{CORAL}"
+    print(f"{WHITE}╭─{BOLD}{title}{OFF}{WHITE}"
           + "─" * (inner - len(title) - 1) + f"╮{OFF}")
-    print(f"{CORAL}│{OFF}" + " " * inner + f"{CORAL}│{OFF}")
+    print(f"{WHITE}│{OFF}" + " " * inner + f"{WHITE}│{OFF}")
     for plain, styled in rows:
         pad = " " * (inner - len(plain) - 2)
-        print(f"{CORAL}│{OFF}  {styled}{pad}{CORAL}│{OFF}")
-    print(f"{CORAL}│{OFF}" + " " * inner + f"{CORAL}│{OFF}")
-    print(f"{CORAL}╰" + "─" * (inner - len(ver) - 2)
-          + f"{OFF}{GRAY}{ver}{OFF}{CORAL}──╯{OFF}")
+        print(f"{WHITE}│{OFF}  {styled}{pad}{WHITE}│{OFF}")
+    print(f"{WHITE}│{OFF}" + " " * inner + f"{WHITE}│{OFF}")
+    print(f"{WHITE}╰" + "─" * (inner - len(ver) - 2)
+          + f"{OFF}{GRAY}{ver}{OFF}{WHITE}──╯{OFF}")
     if args.telnet:
         # code mode hands callers a shell on this host; even chat mode spends
         # your API budget. Safe on a home LAN, never on the open internet.
-        print(f"{CORAL}! Trusted LAN only.{OFF}{GRAY} This exposes a Codex "
+        print(f"{WHITE}! Trusted LAN only.{OFF}{GRAY} This exposes a Codex "
               f"session on your network;{OFF}")
         print(f"{GRAY}do NOT port-forward it or bind it to a public "
               f"interface.{OFF}")
@@ -245,7 +245,7 @@ def run_app_session(term: Terminal, args, backend, backend_err, mode,
             # the client's cout, so the user gets a clear "you paired" line, not
             # just a header refresh. All of this lands before the terminating
             # EOT (and thus before the deferred token write goes deaf).
-            term.write(b"\x01\x02")  # coral
+            term.write(b"\x01\x02")  # white accent
             term.write_line("Paired! Type a message to begin.")
             term.write(b"\x01\x01")  # back to gray
             term.write(EOT)
@@ -668,7 +668,7 @@ def require_pairing(term: Terminal, args, pm: PairingManager) -> bool:
         nonlocal announced
         if not announced:
             log(f"waiting for the pairing code: "
-                f"{BOLD}{CORAL}{pm.code_for(peer)}{OFF}", peer=peer)
+                f"{BOLD}{WHITE}{pm.code_for(peer)}{OFF}", peer=peer)
             announced = True
 
     def accept_code():

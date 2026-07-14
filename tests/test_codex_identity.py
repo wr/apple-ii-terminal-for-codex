@@ -47,6 +47,7 @@ def test_legacy_identity_is_absent_from_product_sources():
         Path("apple2gs/preview.py"),
         Path("apple2gs/codex.s"),
         Path("apple2/codex2.s"),
+        Path("bridge/bridge.py"),
     ]
     joined = "\n".join(path.read_text() for path in paths)
     assert "Patch" not in joined

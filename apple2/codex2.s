@@ -13,7 +13,7 @@
 ; the GS client. TX polls TDRE with a timeout (W65C51N never sets it).
 ;
 ; Protocol: same app-mode stream as the IIgs client. 0x01 <n> color
-; (3 -> inverse, else normal), 0x02 bullet, 0x0E header frame (3 CR
+; (3 -> inverse, else normal), 0x02 bullet, 0x0E header frame (4 CR
 ; lines), 0x03 session over, 0x04 EOT.
 ; =====================================================================
 
@@ -62,6 +62,8 @@ CMD_BULLET = $02
 CMD_QUIT   = $03
 CMD_TOKEN  = $05        ; app mode: bridge issues a device token; we store it
 CMD_HEADER = $0E
+HEADER_LINES = 4
+HEADER_ROWS = 6
 
 DIAL_CONNECT = 1
 DIAL_ERROR = 2
@@ -75,7 +77,6 @@ BTMROW  = 20
 RULE1   = 21
 INPUTR  = 22
 RULE2   = 23
-HDRCOL  = 18            ; header text, right of the mascot
 
 ; =====================================================================
 ; entry: identify the machine, set up screen + serial, menu
@@ -1073,7 +1074,6 @@ session_start:
         jsr     clear_screen
         lda     #0
         tax
-        jsr     draw_mascot     ; header slot: top-left
         lda     #0
         sta     curx
         sta     quitflag
@@ -1363,8 +1363,7 @@ read_line:
         rts
 
 ; =====================================================================
-; spinner - pulse until the reply's first real byte. Esc = bail to
-; the menu (dead-link escape hatch).
+; spinner - Codex Working status until the reply's first real byte.
 ; =====================================================================
 spinner:
         lda     #0
@@ -1372,21 +1371,26 @@ spinner:
         sta     sp_ph
         sta     sp_fr           ; frame counter: bell_maybe's >=15s gate
         sta     sp_fr+1
+        sta     sp_sub
+        sta     sp_ones
+        sta     sp_tens
+        sta     sp_huns
+        sta     spin_cancel
 @lp:    lda     KBD
         bpl     @nk
         sta     KBDSTRB
         and     #$7F
         cmp     #$1B
-        beq     @esc
-        cmp     #$03            ; Ctrl-C: ask the bridge to stop the turn
+        beq     @cancel
+        cmp     #$03
         bne     @nk
-        lda     #$03            ; a bare byte on the wire; the bridge kills
-        jsr     aciaput         ; the Codex turn and EOTs what it has
+@cancel:
+        lda     spin_cancel     ; send exactly one interrupt, then drain to EOT
+        bne     @nk
+        inc     spin_cancel
+        lda     #$03
+        jsr     aciaput
         jmp     @lp
-@esc:   lda     #1
-        sta     quitflag
-        lda     #EOT            ; fake end-of-reply
-        jmp     @stash
 @nk:    jsr     havebyte
         beq     @draw
         jsr     getbyte
@@ -1410,17 +1414,13 @@ spinner:
 @stash: sta     firstbyte
         lda     #1
         sta     havefirst
-        ; erase the pulse cell
+        ; erase the Working line
         lda     cury
         pha
         lda     curx
         pha
-        lda     #0
-        sta     curx
         lda     #BTMROW
-        sta     cury
-        lda     #$A0
-        jsr     putscr
+        jsr     clear_rowA
         pla
         sta     curx
         pla
@@ -1439,18 +1439,58 @@ spinner:
         sta     cury
         inc     sp_ph
         lda     sp_ph
-        lsr
-        lsr
-        and     #$03
-        tax
-        lda     sp_glyphs,x
+        and     #$08
+        beq     @boff
+        lda     #'*'
+        bne     @bput
+@boff:  lda     #' '
+@bput:
         ora     #$80
         jsr     putscr
+        lda     #<str_working
+        sta     src
+        lda     #>str_working
+        sta     src+1
+        jsr     draw_str
+        jsr     sp_draw_secs
+        lda     #<str_interrupt
+        sta     src
+        lda     #>str_interrupt
+        sta     src+1
+        jsr     draw_str
+@pad:   lda     curx
+        cmp     width
+        bcs     @restore
+        jsr     rb_poll
+        lda     #$A0
+        jsr     putscr
+        jmp     @pad
+@restore:
         pla
         sta     curx
         pla
         sta     cury
         jsr     frame_wait
+        inc     sp_sub
+        lda     sp_sub
+        cmp     #60
+        bcc     @frame
+        lda     #0
+        sta     sp_sub
+        inc     sp_ones
+        lda     sp_ones
+        cmp     #10
+        bcc     @frame
+        lda     #0
+        sta     sp_ones
+        inc     sp_tens
+        lda     sp_tens
+        cmp     #10
+        bcc     @frame
+        lda     #0
+        sta     sp_tens
+        inc     sp_huns
+@frame:
         inc     sp_fr           ; one frame of thinking (saturates: a
         bne     @nf             ; wrap would un-ring an 18-minute bell)
         lda     sp_fr+1
@@ -1458,6 +1498,23 @@ spinner:
         beq     @nf
         inc     sp_fr+1
 @nf:    jmp     @lp
+
+sp_draw_secs:
+        lda     sp_huns
+        beq     @tens
+        jsr     sp_put_digit
+        lda     sp_tens
+        jsr     sp_put_digit
+        jmp     @ones
+@tens:  lda     sp_tens
+        beq     @ones
+        jsr     sp_put_digit
+@ones:  lda     sp_ones
+sp_put_digit:
+        clc
+        adc     #'0'
+        ora     #$80
+        jmp     putscr
 
 ; =====================================================================
 ; recv_reply - stream until EOT (mirror of the GS routine)
@@ -1537,50 +1594,85 @@ recv_reply:
         rts
 
 ; =====================================================================
-; do_header - 3 CR-terminated lines drawn beside the mascot (rows
-; 1-3, col HDRCOL). The window scroll never touches them.
+; do_header - four CR-terminated values inside a width-aware six-row box.
+; The transcript starts at row 6, so the box remains fixed.
 ; =====================================================================
 do_header:
         lda     curx
         pha
         lda     cury
         pha
+        lda     #0
+        sta     hdr_row
+        jsr     hdr_border
         lda     #1
         sta     hdr_row
-@line:  lda     #HDRCOL
+@line:  lda     #0
         sta     curx
         lda     hdr_row
         sta     cury
+        lda     #'|'|$80
+        jsr     putscr
+        lda     #' '|$80
+        jsr     putscr
 @ch:    jsr     getbyte
         and     #$7F
         cmp     #$0D
         beq     @eol
         cmp     #$20
         bcc     @ch
-        ldx     curx
-        cpx     width
-        bcs     @ch             ; truncate at the right edge
+        lda     curx
+        clc
+        adc     #1
+        cmp     width
+        bcs     @ch             ; reserve the final column for |
         ora     #$80
         jsr     putscr
         jmp     @ch
 @eol:   ; pad the rest of the line (clears a previous longer header)
-        ldx     curx
-@pad:   cpx     width
-        bcs     @nl
+@pad:   lda     curx
+        clc
+        adc     #1
+        cmp     width
+        bcs     @close
         jsr     rb_poll         ; ~60 pads = several char times
         lda     #$A0
         jsr     putscr
-        ldx     curx
         jmp     @pad
-@nl:    inc     hdr_row
+@close: lda     #'|'|$80
+        jsr     putscr
+        inc     hdr_row
         lda     hdr_row
-        cmp     #4
+        cmp     #(HEADER_LINES+1)
         bne     @line
+        lda     #5
+        sta     hdr_row
+        jsr     hdr_border
         pla
         sta     cury
         pla
         sta     curx
         rts
+
+hdr_border:
+        lda     #0
+        sta     curx
+        lda     hdr_row
+        sta     cury
+        lda     #'+'|$80
+        jsr     putscr
+        lda     width
+        sec
+        sbc     #2
+        sta     tmp4
+@hyphen:
+        jsr     rb_poll
+        lda     #'-'|$80
+        jsr     putscr
+        dec     tmp4
+        bne     @hyphen
+        lda     #'+'|$80
+        jmp     putscr
 
 ; =====================================================================
 ; token sector I/O - RWTS-read/write a reserved sector (T=$12 S=$0F) on
@@ -1823,7 +1915,8 @@ str_ins_5:  .byte "Modem: store entry 1 (AT&Z1=host:6401 then AT&W).",0
 str_ins_6:  .byte "Connect on the menu dials ATDS=1 and starts the session.",0
 str_ins_7:  .byte "In session: /new /model /help /quit, Ctrl-C.",0
 str_esc:    .byte "Any key returns to the menu",0
-sp_glyphs:  .byte "*+:+"
+str_working:.byte " Working (",0
+str_interrupt:.byte "s * esc to interrupt)",0
 menu_ptrs:  .word mi0, mi1, mi2, mi3
 mi0:        .byte "1. Connect",0
 mi1:        .byte "2. Modem",0
@@ -1861,6 +1954,11 @@ muteflag:   .res 1          ; Ctrl-C during recv_reply: drain without drawing
 token_pending: .res 1       ; do_token framed a token: token_flush writes it at idle
 sp_ph:      .res 1
 sp_fr:      .res 2          ; spinner frames elapsed (~60/s): the bell gate
+sp_sub:     .res 1          ; frames within the current elapsed second
+sp_ones:    .res 1
+sp_tens:    .res 1
+sp_huns:    .res 1
+spin_cancel:.res 1          ; one interrupt byte sent for this turn
 wake_done:  .res 1          ; the wake gesture already greeted this boot
 dsnd_ix:    .res 1          ; dial theater: storyboard cursor
 hdr_row:    .res 1

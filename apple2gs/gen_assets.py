@@ -171,21 +171,6 @@ def load_unscii(path="unscii-8.hex"):
     return glyphs
 
 
-# Kept until the native Working renderer no longer needs a generated pointer.
-SPIN_WORDS = ["Working"]
-
-
-def emit_spinwords():
-    # Pointer table + variable-length " Word..." strings, so the client can draw
-    # the elapsed-time counter right after the word instead of at a fixed column.
-    lines = [f"SPIN_COUNT = {len(SPIN_WORDS)}", "spin_ptrs:"]
-    for i in range(len(SPIN_WORDS)):
-        lines.append(f"    .addr spin_w{i}")
-    for i, w in enumerate(SPIN_WORDS):
-        lines.append(f'spin_w{i}: .byte " {w}...",0')
-    return "\n".join(lines)
-
-
 def emit_bullet():
     # small filled dot, vertically centered in the 8x8 cell (bit7 = leftmost)
     rows = [0x00, 0x00, 0x3C, 0x7E, 0x7E, 0x3C, 0x00, 0x00]
@@ -303,7 +288,6 @@ if __name__ == "__main__":
         f.write(emit_expand() + "\n\n")
         f.write(emit_mascot() + "\n\n")
         f.write(emit_splash() + "\n\n")
-        f.write(emit_spinwords() + "\n\n")
         f.write(emit_bullet() + "\n\n")
         f.write(emit_music() + "\n\n")
         f.write(emit_font() + "\n")

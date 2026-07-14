@@ -32,7 +32,6 @@ firstbyte = $D5        ; byte: first real reply byte stashed by spinner
 havefirst = $D4        ; byte: nonzero if firstbyte is valid
 srcptr  = $D0          ; 3 bytes: scroll source pointer + bank ($D2)
 colorpend = $D3        ; byte: nonzero if next reply byte is a color value
-spinword = $D7         ; byte: index of current "thinking" word
 bufptr  = $FA          ; 3 bytes: scrollback line pointer + bank ($FC).
                        ;  NOT $B0-$B2 - that's inside Applesoft's CHRGET
                        ;  routine (live code!); overwriting it breaks all of
@@ -40,7 +39,7 @@ bufptr  = $FA          ; 3 bytes: scrollback line pointer + bank ($FC).
 
 ; ---- layout (text rows 0-24) ----
 TOP_ROW   = 0          ; scroll region top (header lives here and scrolls away)
-START_ROW = 5          ; where the transcript cursor begins (below the header)
+START_ROW = 6          ; where the transcript cursor begins (below the header)
 BOT_ROW   = 20         ; transcript bottom
 RULE1_ROW = 21
 INPUT_ROW = 22
@@ -61,7 +60,9 @@ CMD_COLOR  = $01       ; in-band: next byte sets txtcolor (1 gray/2 white/3 whit
 CMD_BULLET = $02       ; in-band: draw the white reply bullet here
 CMD_QUIT   = $03       ; in-band: bridge says session over -> back to the menu
 CMD_TOKEN  = $05       ; in-band: bridge issues a device token; we store it to disk
-CMD_HEADER = $0E       ; in-band: header frame follows (title CR subtitle CR)
+CMD_HEADER = $0E       ; in-band: four CR-terminated header values follow
+HEADER_LINES = 4
+HEADER_ROWS = 6
 
 DIAL_CONNECT = 1
 DIAL_ERROR = 2
@@ -627,14 +628,8 @@ session_start:
         jsr     clear_screen
         rep     #$20
         .a16
-        lda     #(SHR_BASE + 6*160 + 2)     ; mascot's home in the header
-        sta     mascot_at
         sep     #$20
         .a8
-        jsr     draw_mascot
-        .a8
-
-        TEXT    str_title, 12, 1, 2     ; placeholder until the bridge's header lands
 
         ; transcript cursor starts below the header
         rep     #$20
@@ -645,8 +640,6 @@ session_start:
         sta     currow
         sep     #$20
         .a8
-        lda     #$FF            ; first spinner advance -> word 0
-        sta     spinword
         ; scrollback buffer
         stz     b_head
         lda     #1
@@ -1306,9 +1299,6 @@ dial_str:
 str_ato:
         .byte   "ATO",0                  ; resume the data link on a skip-dial reconnect
 
-spin_glyphs:
-        .byte   "*+:+"          ; pulse cycle for the thinking spinner
-
 ; =====================================================================
 ; splash_frame - A (a8) = frame index. Draws one >_ animation frame
 ;   port, tripled: each stored 2-bit pixel becomes 3 screen bytes (12px)
@@ -1511,30 +1501,23 @@ spinner:
         stz     sp_ones
         stz     sp_tens
         stz     sp_huns
-        inc     spinword        ; next word for this reply
-        lda     spinword
-        cmp     #SPIN_COUNT
-        bcc     @wc
-        stz     spinword
-@wc:
-        lda     #5              ; seconds until the word rotates
-        sta     sp_wordcd
+        stz     spin_cancel
 sp_lp:
-        lda     KBD             ; Esc aborts the wait - escape hatch when the
-        bpl     sp_nk           ; link is dead and no reply will ever come
+        lda     KBD
+        bpl     sp_nk
         sta     KBDSTRB
         and     #$7F
         cmp     #$1B
-        beq     sp_esc
-        cmp     #$03            ; Ctrl-C: ask the bridge to stop the turn
+        beq     sp_cancel_key
+        cmp     #$03
         bne     sp_nk
-        lda     #$03            ; a bare byte on the wire; the bridge kills
-        jsr     sccput          ; the Codex turn and EOTs what it has
+sp_cancel_key:
+        lda     spin_cancel     ; send exactly one interrupt, then drain to EOT
+        bne     sp_nk
+        inc     spin_cancel
+        lda     #$03
+        jsr     sccput
         bra     sp_nk
-sp_esc: lda     #1
-        sta     quitflag
-        lda     #EOT            ; fake end-of-reply: recv_reply finishes
-        bra     sp_exj          ; instantly, main sees quitflag -> menu
 sp_nk:
         jsr     havebyte
         beq     sp_draw         ; no byte -> keep spinning
@@ -1571,42 +1554,37 @@ sp_draw:
         sta     curcol
         sep     #$20
         .a8
-        ; animated star: pulse * + : + like the real TUI spinner
+        ; blinking Apple-safe bullet
         lda     frame
-        lsr     a
-        and     #$03
-        tax
-        lda     spin_glyphs,x
+        and     #$04
+        beq     sp_boff
+        lda     #'*'
+        bra     sp_bput
+sp_boff:
+        lda     #' '
+sp_bput:
         jsr     putchar
-        ; word: strptr = spin_ptrs[spinword]
-        lda     spinword
-        asl     a               ; *2 (2-byte pointers)
-        tax
         rep     #$20
         .a16
-        lda     spin_ptrs,x
+        lda     #str_working
         sta     strptr
         sep     #$20
         .a8
-        jsr     draw_str        ; " Word..."
-        ; elapsed timer in gray:  (Ns)
-        lda     #1
-        sta     txtcolor
-        lda     #' '
-        jsr     putchar
-        lda     #'('
-        jsr     putchar
+        jsr     draw_str        ; " Working ("
         jsr     draw_secs
-        lda     #'s'
-        jsr     putchar
-        lda     #')'
-        jsr     putchar
-        ; pad to col 30 with spaces to erase a longer previous render
+        rep     #$20
+        .a16
+        lda     #str_interrupt
+        sta     strptr
+        sep     #$20
+        .a8
+        jsr     draw_str        ; "s * esc to interrupt)"
+        ; pad to col 40 to erase a longer previous render
 sp_pad:
         rep     #$20
         .a16
         lda     curcol
-        cmp     #30
+        cmp     #40
         sep     #$20
         .a8
         bcs     sp_paced
@@ -1626,7 +1604,7 @@ sp_exit:
         lda     currow
         sep     #$20
         .a8
-        jsr     clear_rowA      ; wipe " COGITATING..." line
+        jsr     clear_rowA      ; wipe the Working line
         rep     #$20
         .a16
         lda     #0
@@ -1659,33 +1637,21 @@ sp_pc_n:
 sp_pc_x:
         rts
 
-; tick_second - one elapsed second: bump the decimal digit counters and, every
-;   sp_wordcd seconds, rotate to the next thinking word.
+; tick_second - one elapsed second: bump the decimal digit counters.
 tick_second:
         .a8
         .i8
         inc     sp_ones
         lda     sp_ones
         cmp     #10
-        bcc     ts_word
+        bcc     ts_done
         stz     sp_ones
         inc     sp_tens
         lda     sp_tens
         cmp     #10
-        bcc     ts_word
+        bcc     ts_done
         stz     sp_tens
         inc     sp_huns
-ts_word:
-        dec     sp_wordcd
-        bne     ts_done
-        inc     spinword
-        lda     spinword
-        cmp     #SPIN_COUNT
-        bcc     ts_cd
-        stz     spinword
-ts_cd:
-        lda     #5
-        sta     sp_wordcd
 ts_done:
         rts
 
@@ -1784,7 +1750,7 @@ rr_nocp:
         beq     rr_setcp
         cmp     #CMD_BULLET     ; 0x02 -> draw white reply bullet
         beq     rr_bullet
-        cmp     #CMD_HEADER     ; 0x0E -> header frame (title CR subtitle CR)
+        cmp     #CMD_HEADER     ; 0x0E -> four-line header frame
         beq     rr_header
         cmp     #CMD_TOKEN      ; 0x05 -> capture + persist a freshly issued token
         beq     rr_token
@@ -1828,18 +1794,20 @@ rr_done:
         rts
 
 ; =====================================================================
-; do_header - a CMD_HEADER frame arrived: two CR-terminated lines (real title
-;   then subtitle). Draw them once at the fixed header slot (rows 1-3, col 12);
-;   on later frames just consume the bytes. Preserves the transcript cursor.
+; do_header - draw a six-row box around four CR-terminated bridge values.
+;   Once transcript scrolling removes the header, later frames are consumed.
 ; =====================================================================
 do_header:
         .a8
         .i8
         lda     header_locked
         beq     dh_draw
-        jsr     hdr_skipline    ; header frozen (scrolled off) -> discard the frame
+        lda     #HEADER_LINES
+        sta     hdr_row
+dh_skip:
         jsr     hdr_skipline
-        jsr     hdr_skipline
+        dec     hdr_row
+        bne     dh_skip
         rts
 dh_draw:
         rep     #$20            ; save cursor (transcript or input)
@@ -1848,37 +1816,39 @@ dh_draw:
         sta     hsavecol
         lda     currow
         sta     hsaverow
-        lda     #12             ; title at row 1, col 12
-        sta     curcol
+        sep     #$20
+        .a8
+        TEXT    hdr_border, 0, 0, 1
         lda     #1
+        sta     hdr_row
+dh_line:
+        rep     #$20
+        .a16
+        lda     #0
+        sta     curcol
+        lda     hdr_row
+        and     #$00FF
         sta     currow
         sep     #$20
         .a8
-        lda     #2              ; white
+        lda     #1
         sta     txtcolor
-        jsr     hdr_readline
-        rep     #$20            ; subtitle at row 2
-        .a16
-        lda     #12
-        sta     curcol
+        lda     #'|'
+        jsr     putchar
+        lda     #' '
+        jsr     putchar
+        lda     hdr_row
+        cmp     #1
+        bne     dh_gray
         lda     #2
-        sta     currow
-        sep     #$20
-        .a8
-        lda     #1              ; gray
-        sta     txtcolor
+        sta     txtcolor        ; title row is white
+dh_gray:
         jsr     hdr_readline
-        rep     #$20            ; working directory at row 3
-        .a16
-        lda     #12
-        sta     curcol
-        lda     #3
-        sta     currow
-        sep     #$20
-        .a8
-        lda     #1              ; gray
-        sta     txtcolor
-        jsr     hdr_readline
+        inc     hdr_row
+        lda     hdr_row
+        cmp     #(HEADER_LINES+1)
+        bne     dh_line
+        TEXT    hdr_border, 0, 5, 1
         rep     #$20            ; restore cursor
         .a16
         lda     hsavecol
@@ -1891,8 +1861,7 @@ dh_draw:
         sta     txtcolor
         rts
 
-; hdr_readline - draw printable bytes from the SCC until CR, then pad to col 40
-;   with spaces so a shorter update overwrites the previous header text.
+; hdr_readline - draw through col 78, consume overflow, pad, then close with |.
 hdr_readline:
         .a8
         .i8
@@ -1905,20 +1874,28 @@ hrl_lp:
         bcc     hrl_lp
         cmp     #$7F
         bcs     hrl_lp
+        rep     #$20
+        .a16
+        lda     curcol
+        cmp     #79
+        sep     #$20
+        .a8
+        bcs     hrl_lp
         jsr     putchar
         bra     hrl_lp
 hrl_pad:
         rep     #$20
         .a16
         lda     curcol
-        cmp     #56
+        cmp     #79
         sep     #$20
         .a8
         bcs     hrl_x
         lda     #' '
         jsr     putchar
         bra     hrl_pad
-hrl_x:
+hrl_x:  lda     #'|'
+        jsr     putchar
         rts
 
 ; hdr_skipline - read and discard SCC bytes until CR
@@ -3071,6 +3048,11 @@ mt_x:   rts
 ; strings
 ; =====================================================================
 str_title:  .byte "Codex",0         ; placeholder until the real header lands
+hdr_border:.byte '+'
+        .repeat 78
+        .byte '-'
+        .endrepeat
+        .byte '+',0
 str_welcome:.byte "Welcome to Terminal for Codex",0
 str_ver:    .byte "for Apple IIgs - v1.1.0",0
 str_by:     .byte "by Wells Workshop",0
@@ -3112,13 +3094,15 @@ str_anykey: .byte "press any key to return",0
 str_model:  .byte "",0
 str_link:   .byte "Apple II <-> Codex",0
 str_prompt: .byte "> ",0
+str_working:.byte " Working (",0
+str_interrupt:.byte "s * esc to interrupt)",0
 
 linebuf:    .res 128
 sp_vblsub:  .res 1          ; vblanks counted within the current second
-sp_wordcd:  .res 1          ; seconds until the thinking word rotates
 sp_ones:    .res 1          ; elapsed-seconds decimal digits
 sp_tens:    .res 1
 sp_huns:    .res 1
+spin_cancel:.res 1          ; one interrupt byte sent for this turn
 b_head:     .res 1          ; ring index of the current (being-written) line
 b_count:    .res 1          ; number of lines recorded (1..BUF_LINES)
 b_col:      .res 1          ; column within the current line (0..79)
@@ -3152,6 +3136,7 @@ anim_ix:    .res 1          ; menu backdrop: splash_seq cursor
 anim_cd:    .res 1          ; menu backdrop: vblanks left on current frame
 hsavecol:   .res 2          ; do_header: saved cursor
 hsaverow:   .res 2
+hdr_row:    .res 1          ; do_header: payload row/count
 dv_r:       .res 1          ; draw_view: current screen row
 vdelta:     .res 1          ; draw_view: lines back from head
 vln:        .res 1          ; draw_view: buffer line being drawn
