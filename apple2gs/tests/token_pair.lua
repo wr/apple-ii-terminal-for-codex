@@ -6,8 +6,8 @@
 -- on-disk layout: magic "CDXTK1" | len | token | checksum.
 --
 -- Harness (mirrors tests/README.md; ROMs live in ~/.mame/roms):
---   cd bridge && python3 bridge.py --telnet --port 6502 --app --backend chat \
---        --cols 80 --pair-code ABCDEF &
+--   python3 bridge/bridge.py --telnet --port 6502 --app --pair-code ABCDEF \
+--        --workdir /absolute/path/to/test/git/repo &
 --   SDL_VIDEODRIVER=dummy TOKCODE=ABCDEF mame apple2ee -rompath ~/.mame/roms \
 --        -aux "" -sl2 ssc -sl2:ssc:rs232 null_modem \
 --        -bitbanger socket.127.0.0.1:6502 -flop1 apple2gs/CODEX.dsk \
