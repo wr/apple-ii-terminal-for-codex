@@ -34,8 +34,21 @@ def test_native_help_lists_only_local_commands():
         assert "/mode," not in text
 
 
-def test_8bit_patch_keeps_blink_eye_coordinates():
+def test_8bit_logo_is_a_terminal_prompt_with_blinking_underscore():
     text = Path("apple2/codex2.s").read_text()
-    assert '.byte   "   X XXXXXX X   "' in text
-    assert "adc     #4" in text
-    assert "adc     #11" in text
+    assert '.byte   "   XX   XXXXXX  "' in text
+    assert "logo_hide_cursor" in text
+    assert "logo_show_cursor" in text
+
+
+def test_legacy_identity_is_absent_from_product_sources():
+    paths = [
+        Path("apple2gs/gen_assets.py"),
+        Path("apple2gs/preview.py"),
+        Path("apple2gs/codex.s"),
+        Path("apple2/codex2.s"),
+    ]
+    joined = "\n".join(path.read_text() for path in paths)
+    assert "Patch" not in joined
+    assert "Cogitating" not in joined
+    assert "coral" not in joined.lower()

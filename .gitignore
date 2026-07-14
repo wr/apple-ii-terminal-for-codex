@@ -11,6 +11,7 @@ apple2gs/CODEX
 apple2gs/HH
 apple2gs/HELLO.tok
 apple2gs/*.dsk
+apple2gs/*-preview*.png
 # vendored base image, not a build output — keep it tracked
 !apple2gs/dos33-master-jan83.dsk
 apple2/codex2.o

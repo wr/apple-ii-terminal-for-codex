@@ -497,7 +497,7 @@ fw_core:
         rts
 
 ; =====================================================================
-; mascot - the critter in inverse blocks, 16 wide x 5 tall
+; logo - a blocky >_ prompt, 16 wide x 5 tall
 ; =====================================================================
 ; A = top row, X = left column
 draw_mascot:
@@ -539,11 +539,11 @@ draw_mascot:
         rts
 
 mascot_art:
-        .byte   "    XXXXXXXX    "
-        .byte   "   X XXXXXX X   "
-        .byte   "  XXXXXXXXXXXX  "
-        .byte   "    XX XX XX    "
-        .byte   "    XX    XX    "
+        .byte   "   XX           "
+        .byte   "     XX         "
+        .byte   "       XX       "
+        .byte   "     XX         "
+        .byte   "   XX   XXXXXX  "
 
 ; =====================================================================
 ; boot menu
@@ -594,15 +594,15 @@ mw_no:
 menu_loop:
         jsr     menu_draw
 @key:   jsr     frame_wait      ; ~1 frame per pass (rb_poll inside);
-        inc     blinkct         ; also paces the mascot's blink
+        inc     blinkct         ; also paces the underscore blink
         lda     blinkct
-        cmp     #170            ; ~3s: eyes shut...
+        cmp     #170            ; ~3s: cursor off...
         bne     @b2
-        jsr     eyes_close
+        jsr     logo_hide_cursor
 @b2:    lda     blinkct
         cmp     #178            ; ...for ~130ms
         bne     @b3
-        jsr     eyes_open
+        jsr     logo_show_cursor
         lda     #0
         sta     blinkct
 @b3:    lda     KBD
@@ -644,38 +644,30 @@ menu_loop:
 @modem: jmp     page_modem
 @instr: jmp     page_instr
 
-; eyes_close/open - the menu mascot's blink. His eyes are dark cells
-; punched out of the lit body: closing = filling them with inverse
-; blocks. Eye cells sit at mascot row+1, columns +4 and +11.
-eyes_close:
-        lda     #$20            ; inverse space = lit block
-        bne     eyes_put
-eyes_open:
+; Blink the six-cell underscore without redrawing the > strokes.
+logo_hide_cursor:
         lda     #$A0            ; normal space = dark
-eyes_put:
+        bne     logo_cursor
+logo_show_cursor:
+        lda     #$20            ; inverse space = lit block
+logo_cursor:
         sta     tmp3
         lda     width
         sec
         sbc     #16
         lsr
         clc
-        adc     #4              ; left eye
+        adc     #8              ; underscore begins after "> "
         sta     curx
-        lda     #3              ; mascot top (2) + 1
+        lda     #6              ; mascot top (2) + final art row (4)
         sta     cury
-        lda     tmp3
+        lda     #6
+        sta     tmp4
+@put:   lda     tmp3
         jsr     putscr
-        lda     width
-        sec
-        sbc     #16
-        lsr
-        clc
-        adc     #11             ; right eye
-        sta     curx
-        lda     #3
-        sta     cury
-        lda     tmp3
-        jmp     putscr
+        dec     tmp4
+        bne     @put
+        rts
 
 ; jingle - the once-per-boot wake gesture (replaced GROOVE, W-488): a
 ; rising sweep that settles into a two-pitch shimmer - the 1-bit
@@ -1275,7 +1267,7 @@ check_carrier:
         rts
 
 ; say_nocarr - note the dropped carrier in the transcript, then it's
-; back to the menu (mirrors the GS pre-send check; coral maps to normal
+; back to the menu (mirrors the GS pre-send check; white maps to normal
 ; video on the 8-bit client)
 say_nocarr:
         lda     #0

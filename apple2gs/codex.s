@@ -57,7 +57,7 @@ SCC_STAT   = $C038     ; RR0: bit0=Rx avail, bit2=Tx empty
 SCC_DATA   = $C03A
 RBUF       = $1E00     ; 256-byte serial Rx ring buffer (bank 0, below the code)
 EOT        = $04
-CMD_COLOR  = $01       ; in-band: next byte sets txtcolor (1 gray/2 coral/3 white)
+CMD_COLOR  = $01       ; in-band: next byte sets txtcolor (1 gray/2 white/3 white)
 CMD_BULLET = $02       ; in-band: draw the white reply bullet here
 CMD_QUIT   = $03       ; in-band: bridge says session over -> back to the menu
 CMD_TOKEN  = $05       ; in-band: bridge issues a device token; we store it to disk
@@ -153,9 +153,8 @@ start:
         bne     @pc
         jsr     clear_screen
 
-        ; ---- splash: Patch wakes and types while the modem dials ----
-        ; splash palette: entry 1 = the sprite's shadow coral (restored at
-        ; teardown, where entry 1 goes back to the UI gray)
+        ; ---- splash: the >_ mark wakes while the modem initializes ----
+        ; the boot palette is restored to the session neutrals at Connect
         rep     #$30
         .a16
         .i16
@@ -189,7 +188,7 @@ start:
 ; =====================================================================
 ; boot menu - the act loops above it forever, keys work immediately.
 ; anim_ix/anim_cd walk splash_seq (frame, vblanks, ..., $FF wraps).
-; The whole boot phase runs the splash palette (shadow coral + platinum);
+; The whole boot phase runs the neutral splash palette;
 ; the session palette loads at Connect.
 ; =====================================================================
 menu_screen:
@@ -412,7 +411,7 @@ af_w:   jsr     vbl_edge
         bne     af_w
         jmp     menu_screen
 
-; menu_draw - the four items at rows 16-19, selected one coral with '>'
+; menu_draw - the four items at rows 16-19, selected one white with '>'
 menu_draw:
         .a8
         .i8
@@ -456,7 +455,7 @@ md_lp:
         jsr     putchar
         bra     md_txt
 md_sel:
-        lda     #2              ; coral with the '>' marker
+        lda     #2              ; white with the '>' marker
         sta     txtcolor
         lda     #'>'
         jsr     putchar
@@ -646,7 +645,7 @@ session_start:
         sta     currow
         sep     #$20
         .a8
-        lda     #$FF            ; first spinner advance -> word 0 (Cogitating)
+        lda     #$FF            ; first spinner advance -> word 0
         sta     spinword
         ; scrollback buffer
         stz     b_head
@@ -1034,7 +1033,7 @@ cc_ok:  sec
 cc_no:  clc
         rts
 
-; say_nocarr - note the dropped carrier in the transcript (coral)
+; say_nocarr - note the dropped carrier in the transcript (white)
 say_nocarr:
         .a8
         .i8
@@ -1311,7 +1310,7 @@ spin_glyphs:
         .byte   "*+:+"          ; pulse cycle for the thinking spinner
 
 ; =====================================================================
-; splash_frame - A (a8) = frame index. Draws one Patch animation frame
+; splash_frame - A (a8) = frame index. Draws one >_ animation frame
 ;   port, tripled: each stored 2-bit pixel becomes 3 screen bytes (12px)
 ;   wide and 6 scanlines tall, via the expand4_n solid-byte tables.
 ;   splash_data/splash_off/splash_seq all come from assets.inc (generated
@@ -1564,7 +1563,7 @@ sp_q:   lda     #1
         sta     quitflag
         bra     sp_lp
 sp_draw:
-        lda     #2              ; coral word
+        lda     #2              ; white status
         sta     txtcolor
         rep     #$20
         .a16
@@ -1855,7 +1854,7 @@ dh_draw:
         sta     currow
         sep     #$20
         .a8
-        lda     #2              ; coral
+        lda     #2              ; white
         sta     txtcolor
         jsr     hdr_readline
         rep     #$20            ; subtitle at row 2

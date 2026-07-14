@@ -4,30 +4,37 @@
 640 mode: 4 pixels/byte, 2 bits each. Because the hardware picks the palette
 entry from BOTH the pixel value and its column-within-byte, we replicate the 4
 colors across all 16 palette slots so a 2-bit value means the same color
-everywhere. 4 usable colors:  0 black, 1 gray, 2 coral, 3 yellow.
+everywhere. 4 usable colors: 0 black, 1 gray, 2 white, 3 white.
 """
 
-from patch_art import PATCH_FRAMES, PATCH_HOLD, PATCH_SEQUENCE, PATCH_SESSION
-
-COL_BLACK, COL_GRAY, COL_CORAL, COL_YELLOW = 0, 1, 2, 3
+COL_BLACK, COL_GRAY, COL_ACCENT, COL_WHITE = 0, 1, 2, 3
 COLORS = {                       # value -> $0RGB (4 bits/channel)
     0: (0x0, 0x0, 0x0),          # black background
     1: (0x9, 0x9, 0x9),          # mid gray    (Codex replies + input box)
-    2: (0xD, 0x7, 0x5),          # coral       (mascot / titles / spinner)
+    2: (0xF, 0xF, 0xF),          # white       (titles / status)
     3: (0xF, 0xF, 0xF),          # white       (user's submitted messages)
 }
 
 MASCOT_HSCALE = 2
 MASCOT_VSCALE = 1
-# . black, C coral body, K black (eyes), G gray (hardware), W white
-MLEG = {".": 0, "C": 2, "K": 0, "G": 1, "W": 3, "S": 1}
-MASCOT_FRAMES = [PATCH_FRAMES[PATCH_SESSION]]
+MLEG = {".": 0, "W": 2}
 
-# boot-phase palette (splash + menu): entry 1 = the sprite's shadow coral
-# (doubles as dim menu text), entry 3 = platinum (computer, keyboard, bright
-# menu text). The session palette (gray/white) is loaded at Connect.
-COLORS_SPLASH = {0: (0x0, 0x0, 0x0), 1: (0xA, 0x5, 0x4),
-                 2: (0xD, 0x7, 0x5), 3: (0xC, 0xC, 0xC)}
+LOGO_OFF = (
+    "..WW............", "...WW...........", "....WW..........",
+    ".....WW.........", "....WW..........", "...WW...........",
+    "..WW............",
+)
+LOGO_ON = "on"
+LOGO_FRAMES = {
+    "off": LOGO_OFF,
+    LOGO_ON: LOGO_OFF[:-1] + ("..WW..WWWWWW....",),
+}
+LOGO_SEQUENCE = [("off", 8), (LOGO_ON, 24), ("off", 8), (LOGO_ON, 90)]
+MASCOT_FRAMES = [LOGO_FRAMES[LOGO_ON]]
+
+# The boot phase uses the same neutral hierarchy as the session.
+COLORS_SPLASH = {0: (0x0, 0x0, 0x0), 1: (0x6, 0x6, 0x6),
+                 2: (0xF, 0xF, 0xF), 3: (0xC, 0xC, 0xC)}
 
 
 def pack640(pixels):
@@ -46,25 +53,25 @@ def emit_palette():
     for n in range(16):
         r, g, b = COLORS[n & 3]
         lines.append(f"    .word ${(r<<8)|(g<<4)|b:04X}")
-    lines.append("shr_palette_splash:   ; shadow coral + laptop gray variant")
+    lines.append("shr_palette_splash:   ; neutral boot/menu variant")
     for n in range(16):
         r, g, b = COLORS_SPLASH[n & 3]
         lines.append(f"    .word ${(r<<8)|(g<<4)|b:04X}")
     return "\n".join(lines)
 
 
-PATCH_COLORS = {".": 0, "K": 0, "S": 1, "C": 2, "G": 3}
+LOGO_COLORS = {".": 0, "W": 2}
 
 
 def splash_extract():
-    names = list(PATCH_FRAMES)
+    names = list(LOGO_FRAMES)
     frames = [
-        tuple(tuple(PATCH_COLORS[cell] for cell in row) for row in PATCH_FRAMES[name])
+        tuple(tuple(LOGO_COLORS[cell] for cell in row) for row in LOGO_FRAMES[name])
         for name in names
     ]
     index = {name: position for position, name in enumerate(names)}
-    sequence = [(index[name], duration) for name, duration in PATCH_SEQUENCE]
-    return frames, sequence, 28, 16, index[PATCH_HOLD]
+    sequence = [(index[name], duration) for name, duration in LOGO_SEQUENCE]
+    return frames, sequence, 16, 7, index[LOGO_ON]
 
 
 def emit_splash():
@@ -164,12 +171,8 @@ def load_unscii(path="unscii-8.hex"):
     return glyphs
 
 
-# Codex's rotating "thinking" gerunds (a subset that fits the field).
-SPIN_WORDS = [
-    "Cogitating", "Pondering", "Ruminating", "Percolating", "Noodling",
-    "Musing", "Simmering", "Brewing", "Conjuring", "Puzzling", "Marinating",
-    "Vibing", "Schlepping", "Wrangling", "Reticulating", "Cerebrating",
-]
+# Kept until the native Working renderer no longer needs a generated pointer.
+SPIN_WORDS = ["Working"]
 
 
 def emit_spinwords():
@@ -234,7 +237,7 @@ def _wave():
 # WAKE - the once-per-boot menu greeting (replaced GROOVE, W-488). Not a
 # melody: a rising two-voice gesture that lands on an A4+E5 fifth and fades
 # out via the release ramp in codex.s. Reads as "something woke up" - the
-# sound is about Patch, not the phone system.
+# sound marks the terminal waking, not the phone system.
 SND_WAKE0 = [(hz, 3) for hz in (220.0, 261.6, 329.6, 392.0, 440.0,
                                 523.3, 587.3)] + [(659.3, 26)]
 SND_WAKE1 = [(0, 15), (329.6, 6), (440.0, 26)]

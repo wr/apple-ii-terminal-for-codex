@@ -72,7 +72,7 @@ def draw_str(px, col, row, s, color, glyphs):
         draw_char(px, x0 + i * 8, y0, glyph_for(glyphs, ch), color)
 
 
-# The coral reply bullet the client stamps before Codex's first line.
+# The white reply bullet the client stamps before Codex's first line.
 _BULLET = (
     "........",
     "..###...",
@@ -102,29 +102,23 @@ def main():
     W, H = 640, 200  # SHR 640 mode logical grid (we render text at 8x8 cells)
     px = {}  # (x,y) -> color value
 
-    # colors: 0 black, 1 gray, 2 coral, 3 white (matches gen_assets)
-    GRAY, CORAL, WHITE = 1, 2, 3
+    # colors: 0 black, 1 gray, 2 white accent, 3 white (matches gen_assets)
+    GRAY, ACCENT, WHITE = 1, 2, 3
 
-    # mascot: drawn at scanline 8, pixel 8 (SHR_BASE + 8*160 + 2 bytes)
-    for r, row in enumerate(mascot):
-        for c, v in enumerate(row):
-            if v:
-                px[(8 + c, 8 + r)] = v
-
-    # header (rows 1-3, col 15 to clear the mascot region)
-    draw_str(px, 12, 1, "Codex CLI v0.144.1", CORAL, glyphs)
-    draw_str(px, 12, 2, "default model", GRAY, glyphs)
-    draw_str(px, 12, 3, "Apple II <-> Codex", CORAL, glyphs)
-    # transcript: your messages white, Codex replies gray with a coral bullet
-    draw_str(px, 0, 6, "> what does render.py do?", WHITE, glyphs)
-    draw_bullet(px, 0, 8, CORAL)
-    draw_str(px, 2, 8, "It flattens Codex Markdown to 7-bit", GRAY, glyphs)
-    draw_str(px, 2, 9, "ASCII and word-wraps it to 40 or 80", GRAY, glyphs)
-    draw_str(px, 2, 10, "columns for the Apple II to draw.", GRAY, glyphs)
-    draw_str(px, 0, 12, "> add a test for the code-span case", WHITE, glyphs)
-    draw_bullet(px, 0, 14, CORAL)
-    draw_str(px, 2, 14, "Added test_render_markdown.py and ran", GRAY, glyphs)
-    draw_str(px, 2, 15, "it - 4 passed, all green.", GRAY, glyphs)
+    border = "+" + "-" * 78 + "+"
+    draw_str(px, 0, 0, border, GRAY, glyphs)
+    draw_str(px, 0, 1, "| >_ OpenAI Codex (v0.144.4)".ljust(79) + "|", ACCENT, glyphs)
+    draw_str(px, 0, 2, "| model: gpt-5.6-sol high   /model to change".ljust(79) + "|", GRAY, glyphs)
+    draw_str(px, 0, 3, "| directory: ~/Projects/appleii-codex".ljust(79) + "|", GRAY, glyphs)
+    draw_str(px, 0, 4, "| permissions: workspace-write / never".ljust(79) + "|", GRAY, glyphs)
+    draw_str(px, 0, 5, border, GRAY, glyphs)
+    # transcript: your messages white, Codex replies gray with a white bullet
+    draw_str(px, 0, 7, "> what does render.py do?", WHITE, glyphs)
+    draw_bullet(px, 0, 9, ACCENT)
+    draw_str(px, 2, 9, "It flattens Codex Markdown to 7-bit", GRAY, glyphs)
+    draw_str(px, 2, 10, "ASCII and word-wraps it to 40 or 80", GRAY, glyphs)
+    draw_str(px, 2, 11, "columns for the Apple II to draw.", GRAY, glyphs)
+    draw_str(px, 0, 20, "* Working (5s * esc to interrupt)", ACCENT, glyphs)
 
     # Build the logical 640x200 framebuffer, 1 output px per SHR px.
     img = Image.new("RGB", (W, H), palette[0])
@@ -136,9 +130,9 @@ def main():
     # ~0.42 wide : 1 tall. Resize to a 4:3 frame so the preview matches KEGS.
     full = img.resize((1280, 960), Image.NEAREST)
     full.save(out)
-    # Also a zoomed crop of the mascot region for close comparison.
-    crop = img.crop((0, 0, 120, 64)).resize((120 * 8, 64 * 19), Image.NEAREST)
-    mout = out.rsplit(".", 1)[0] + "_mascot.png"
+    # Also a zoomed crop of the header for close comparison.
+    crop = img.crop((0, 0, 640, 48)).resize((1280, 192), Image.NEAREST)
+    mout = out.rsplit(".", 1)[0] + "_header.png"
     crop.save(mout)
     print(f"wrote {out} ({full.size[0]}x{full.size[1]}) and {mout}")
 

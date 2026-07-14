@@ -1,0 +1,31 @@
+from pathlib import Path
+
+from gen_assets import COLORS, COLORS_SPLASH, LOGO_FRAMES, LOGO_ON
+
+
+HERE = Path(__file__).parent
+
+
+def test_logo_frames_have_one_packable_geometry_and_blink_underscore():
+    shapes = {(len(frame), len(frame[0])) for frame in LOGO_FRAMES.values()}
+    assert shapes == {(7, 16)}
+    assert all(set(row) <= {".", "W"} for frame in LOGO_FRAMES.values() for row in frame)
+    off = LOGO_FRAMES["off"]
+    on = LOGO_FRAMES[LOGO_ON]
+    assert off[:-1] == on[:-1]
+    assert off[-1] == "..WW............"
+    assert on[-1] == "..WW..WWWWWW...."
+
+
+def test_all_generated_palettes_are_neutral():
+    for palette in (COLORS, COLORS_SPLASH):
+        assert all(r == g == b for r, g, b in palette.values())
+
+
+def test_asset_build_has_no_patch_coral_or_pillow_dependency():
+    source = (HERE / "gen_assets.py").read_text()
+    assert "patch_art" not in source
+    assert "Patch" not in source
+    assert "coral" not in source.lower()
+    assert "PIL" not in source
+    assert "Pillow" not in (HERE.parent / "requirements-build.txt").read_text()
