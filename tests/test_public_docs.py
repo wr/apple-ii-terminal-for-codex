@@ -26,6 +26,19 @@ def test_removed_brand_assets_are_not_shipped():
     assert not Path("docs/demo.gif").exists()
 
 
+def test_readme_keeps_the_hardware_first_project_voice():
+    readme = Path("README.md").read_text()
+    assert "A real Apple II, as a terminal for Codex." in readme
+    assert "## Apple II instructions" in readme
+    assert "### Prerequisites:" in readme
+    assert "### Setup:" in readme
+    assert "## Emulator instructions" in readme
+    assert "## Advanced bridge options" in readme
+    assert "## Generic terminal app instructions" in readme
+    assert "## Building from source" in readme
+    assert "https://buymeacoffee.com/wellsriley" in readme
+
+
 def test_ci_runs_the_current_asset_test_module():
     workflow = Path(".github/workflows/ci.yml").read_text()
     assert "apple2gs/test_codex_assets.py" in workflow
