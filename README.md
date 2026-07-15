@@ -1,5 +1,7 @@
 # Apple II Terminal for Codex
 
+[▶️ Build video](https://www.youtube.com/watch?v=6VsCheEJMIk)
+
 A real Apple II, as a terminal for Codex.
 
 Boot a 140K floppy, dial a WiFi modem, and your Apple II becomes a terminal for the real `codex` CLI, bridged from a modern machine. The disk image boots every model from the IIgs down to the II+ (or an emulator).
