@@ -49,7 +49,7 @@ python3 bridge.py --connect 127.0.0.1:6502 --app --cols 80 --workdir /path/to/gi
 ## The edit → see-it loop
 
 - **GS client, fast path: `preview.py`.** It reproduces `codex.s`'s exact SHR pixel math at KEGS's real display geometry (640×200 stretched to 4:3 → pixels are ~0.42 wide : 1 tall). What the PNG shows is what KEGS shows. It writes a full screen and a zoomed `*_header.png`.
-- **GS client, full loop**: `./build.sh`, then **Ctrl-⌘-Reset** in KEGS (boots `~/Downloads/CODEX.dsk` via `~/config.kegs`). No bridge restart needed.
+- **GS client, full loop**: `COPY_TO_DOWNLOADS=1 ./build.sh`, then **Ctrl-⌘-Reset** in KEGS (boots `~/Downloads/CODEX.dsk` via `~/config.kegs`). A plain `./build.sh` updates only `apple2gs/CODEX.dsk`; no bridge restart is needed.
 - **8-bit client**: MAME, fully scripted. `mame apple2ee -sl2 ssc -sl2:ssc:rs232 null_modem -bitbanger socket.127.0.0.1:6502 -flop1 CODEX.dsk` wires an emulated Super Serial Card to the bridge's socket; `-autoboot_script` (Lua) types keys and takes snapshots, and Lua read/write taps on memory are how the hard bugs here were actually found. The IIc is `mame apple2c` with `-modem null_modem`. ROMs aren't distributable; the romset was assembled from Asimov parts + a keyboard ROM synthesized from MAME's own matrix source.
 - **Bridge change** (`bridge/*.py`): restart the `python3 bridge.py` process.
 - **Real hardware** (Wells: IIgs + IIc, WiModem 232 Pro, FloppyEmu): `tools/install-sd.sh` — in-place overwrite of the card's existing image (can't fragment). The tool is [wr/floppyemu-sd](https://github.com/wr/floppyemu-sd), vendored in `tools/`.

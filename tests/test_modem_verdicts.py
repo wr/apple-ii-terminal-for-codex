@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 import pytest
 
@@ -130,3 +131,63 @@ def test_native_parsers_skip_leading_spaces_and_classify_unknown_no_as_carrier()
         assert "skip a leading space" in parser
         assert "NO DIALTONE / other NO" in parser
         assert "#$FF" in parser
+
+
+def silent_expiry_allows_session(dcd_trust, dcd_carrier):
+    """Model the native-client policy when the dial window saw no verdict."""
+    return bool(dcd_trust and dcd_carrier)
+
+
+@pytest.mark.parametrize(
+    ("dcd_trust", "dcd_carrier", "allowed"),
+    [
+        (False, False, False),
+        (False, True, False),
+        (True, False, False),
+        (True, True, True),
+    ],
+)
+def test_silent_expiry_requires_trusted_current_carrier(
+    dcd_trust, dcd_carrier, allowed
+):
+    assert silent_expiry_allows_session(dcd_trust, dcd_carrier) is allowed
+
+
+def test_gs_silent_expiry_samples_dcd_and_rejects_untrusted_carrier():
+    source = Path("apple2gs/codex.s").read_text()
+    connect = source.split("act_connect:", 1)[1].split("; dsnd_beat", 1)[0]
+    expiry = connect.split("ac_ck:", 1)[1].split("ac_hold:", 1)[0]
+
+    dcd_sample = re.search(
+        r"lda\s+#\$10.*?sta\s+SCC_STAT.*?lda\s+SCC_STAT.*?and\s+#\$08",
+        expiry,
+        re.S,
+    )
+    trust_check = re.search(r"lda\s+dcd_trust\s+beq\s+ac_fail", expiry)
+
+    assert dcd_sample is not None
+    assert trust_check is not None
+    assert dcd_sample.start() < trust_check.start()
+    assert re.search(r"and\s+#\$08[^\n]*\n\s*beq\s+ac_fail", expiry)
+    assert "bra     ac_hold" in expiry
+    assert "sta     dcd_trust" not in expiry
+    assert "session_start" not in expiry
+    assert "str_dtimeout" in connect.split("ac_fail:", 1)[1]
+
+
+def test_8bit_silent_expiry_samples_dcd_and_rejects_untrusted_carrier():
+    source = Path("apple2/codex2.s").read_text()
+    connect = source.split("act_connect:", 1)[1].split("; dsnd_beat", 1)[0]
+    expiry = connect.split("@ck:", 1)[1].split("@hold:", 1)[0]
+
+    dcd_sample = re.search(r"lda\s+ACIA_S\s+and\s+#\$20", expiry)
+    trust_check = re.search(r"lda\s+dcd_trust\s+beq\s+@fail", expiry)
+
+    assert dcd_sample is not None
+    assert trust_check is not None
+    assert dcd_sample.start() < trust_check.start()
+    assert re.search(r"and\s+#\$20[^\n]*\n\s*bne\s+@fail", expiry)
+    assert "jmp     @hold" in expiry
+    assert "sta     dcd_trust" not in expiry
+    assert "session_start" not in expiry
+    assert "str_dtimeout" in connect.split("@fail:", 1)[1]

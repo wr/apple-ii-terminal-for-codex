@@ -55,6 +55,20 @@ def test_bridge_supports_reading_toml_on_python_310():
     assert 'tomli==2.2.1; python_version < "3.11"' in requirements
 
 
+def test_release_workflow_uses_codex_tag_namespace():
+    workflow = Path(".github/workflows/release.yml").read_text()
+
+    assert '- "codex-v*"' in workflow
+    assert '- "v*"' not in workflow
+    assert "apple2gs/CODEX.dsk" in workflow
+
+
+def test_engineering_notes_make_downloads_refresh_opt_in():
+    engineering = Path("AGENTS.md").read_text()
+
+    assert "**GS client, full loop**: `COPY_TO_DOWNLOADS=1 ./build.sh`" in engineering
+
+
 def test_v010_release_docs_match_current_product_state():
     changelog = Path("CHANGELOG.md").read_text()
     license_text = Path("LICENSE").read_text()

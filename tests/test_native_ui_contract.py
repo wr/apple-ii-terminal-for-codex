@@ -44,6 +44,16 @@ def test_gs_buffers_the_complete_header_before_drawing_it():
     assert "inc     hdr_pos\n        lda     hdr_pos\n        tay" in reader
 
 
+def test_gs_header_capture_drains_each_complete_cr_terminated_line():
+    source = Path("apple2gs/codex.s").read_text()
+    capture = source.split("hdr_capture:", 1)[1].split("hdr_advance:", 1)[0]
+
+    assert "HEADER_LINES = 4" in source
+    assert "cmp     #$0D\n        beq     hc_done" in capture
+    assert "bcs     hc_byte" in capture
+    assert "lda     #HEADER_LINES\n        sta     hdr_row" in capture
+
+
 def test_gs_glyph_drawing_keeps_draining_the_scc():
     source = Path("apple2gs/codex.s").read_text()
     putchar = source.split("putchar:", 1)[1].split("draw_bullet:", 1)[0]
@@ -64,6 +74,17 @@ def test_escape_and_ctrl_c_share_one_inflight_remote_interrupt_path():
 
 def test_8bit_spinner_can_force_local_recovery_after_remote_cancel():
     source = Path("apple2/codex2.s").read_text()
+    spinner = source.split("spinner:", 1)[1].split("recv_reply:", 1)[0]
+
+    assert "second Esc/Ctrl-C forces a local return" in spinner
+    assert "jsr     check_carrier" in spinner
+    assert "spin_wait" in spinner
+    assert "lda     #EOT" in spinner
+    assert "sta     quitflag" in spinner
+
+
+def test_gs_spinner_can_force_local_recovery_after_remote_cancel():
+    source = Path("apple2gs/codex.s").read_text()
     spinner = source.split("spinner:", 1)[1].split("recv_reply:", 1)[0]
 
     assert "second Esc/Ctrl-C forces a local return" in spinner

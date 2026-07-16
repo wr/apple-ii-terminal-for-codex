@@ -366,9 +366,18 @@ ac_ck:  plx
         bcs     ac_fail
         dex
         bne     ac_lp
-        ; A direct emulator bridge answers ATDS=1 with CONNECT. Silence now
-        ; means the modem/serial path itself is not responding.
-        jmp     ac_fail
+        ; Silence is success only when the modem's DCD pin has proved live
+        ; and currently shows carrier. An untrusted high DCD may be strapped,
+        ; so KEGS and DCD-less modems must answer with CONNECT instead.
+        lda     #$10            ; Reset Ext/Status, then sample RR0 now
+        sta     SCC_STAT
+        lda     SCC_STAT
+        and     #$08            ; DCD high = carrier
+        beq     ac_fail
+        lda     dcd_trust
+        beq     ac_fail
+        ; Trusted carrier: proceed through the same ring-out as CONNECT.
+        bra     ac_hold
         ; A fast modem answers mid-theater; a buzz chopped at half a note
         ; reads as a glitch, not carrier detect (W-517). The verdict is in,
         ; so stop classifying - just drain rx and let the stream finish.
@@ -1480,6 +1489,7 @@ spinner:
         stz     sp_m10
         stz     sp_h
         stz     spin_cancel
+        stz     spin_wait
 sp_lp:
         lda     KBD
         bpl     sp_nk
@@ -1491,12 +1501,19 @@ sp_lp:
         bne     sp_nk
 sp_cancel_key:
         lda     spin_cancel     ; send exactly one interrupt, then drain to EOT
-        bne     sp_nk
+        bne     sp_force        ; second Esc/Ctrl-C forces a local return
         inc     spin_cancel
         lda     #$03
         jsr     sccput
         bra     sp_nk
+sp_force:
+        lda     #1
+        sta     quitflag
+        lda     #EOT            ; synthesize end-of-reply when the link is dead
+        brl     sp_exit
 sp_nk:
+        jsr     check_carrier   ; a real modem's DCD loss bails locally
+        bcc     sp_force
         jsr     havebyte
         beq     sp_draw         ; no byte -> keep spinning
         ; a byte is waiting: consume it, discard leading control bytes so the
@@ -1576,6 +1593,14 @@ sp_pad:
         bra     sp_pad
 sp_paced:
         jsr     spin_pace       ; ~100ms real-time; advances the timer
+        lda     spin_cancel     ; bound a bridge that cannot return EOT
+        beq     sp_frame
+        inc     spin_wait
+        lda     spin_wait       ; 100 animation frames is about ten seconds
+        cmp     #100
+        bcc     sp_frame
+        brl     sp_force
+sp_frame:
         inc     frame
         brl     sp_lp           ; long branch: sp_lp is >127 bytes back
 sp_exit:
@@ -3161,6 +3186,7 @@ sp_m1:      .res 1          ; minutes ones (0-9)
 sp_m10:     .res 1          ; minutes tens (0-5)
 sp_h:       .res 1          ; hours (saturates at 9)
 spin_cancel:.res 1          ; one interrupt byte sent for this turn
+spin_wait:  .res 1          ; animation frames since interrupt; exit at 100
 shimmer_base:.res 1         ; frame's first offset into shimmer_colors
 shimmer_ix: .res 1          ; character within Working (0..6)
 b_head:     .res 1          ; ring index of the current (being-written) line

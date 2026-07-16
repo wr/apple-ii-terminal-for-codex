@@ -831,7 +831,14 @@ act_connect:
         bcs     @fail           ; ERROR/BUSY/NO x
         dex
         bne     @beat
-        jmp     @fail           ; direct emulators receive synthetic CONNECT
+        ; Silence is not proof of a link. Accept it only when DCD has first
+        ; proved itself live by reading no-carrier and now reads carrier.
+        lda     ACIA_S
+        and     #$20            ; 6551 bit5: 0 = carrier present
+        bne     @fail
+        lda     dcd_trust
+        beq     @fail           ; reject a high DCD that has never moved
+        jmp     @hold           ; trusted carrier: finish theater, then session
         ; A fast modem answers mid-theater; a buzz chopped at half a note
         ; reads as a glitch, not carrier detect (W-517). The verdict is in,
         ; so stop classifying - play out the storyboard, still draining rx
