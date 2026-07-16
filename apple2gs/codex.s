@@ -1065,14 +1065,17 @@ bell_maybe:
         .i8
         lda     quitflag        ; session's over: leave quietly
         bne     bm_x
-        lda     sp_huns
+        lda     sp_h
         bne     bm_ring
-        lda     sp_tens
+        lda     sp_m1
+        ora     sp_m10
+        bne     bm_ring
+        lda     sp_s10
         cmp     #2
         bcs     bm_ring
         cmp     #1
         bne     bm_x
-        lda     sp_ones
+        lda     sp_s1
         cmp     #5
         bcc     bm_x
 bm_ring:
@@ -1183,55 +1186,70 @@ dial_echo:
         sta     dcol
 @x:     rts
 
-; dial_byte - buffer one modem response line, fold ASCII to uppercase, and
-; classify its complete verdict at CR. The 11-byte buffer is enough for every
-; result prefix we inspect; longer text is ignored until CR.
+; dial_byte - classify a modem result line during the dial window, one rx
+; byte at a time, into a specific verdict. mdm_c1 holds the line phase:
+; 0=start, C/N=first letter seen, M=scanning after "NO", $FF=line done.
+; Silence leaves dialres at zero. Keep this bounded inside the receive loop.
 dial_byte:
         .a8
         .i8
         and     #$7F
         cmp     #$0D
-        beq     db_line
+        beq     db_nl           ; CR: line boundary -> reset phase
         cmp     #$20
-        bcc     db_x            ; other control bytes: ignore
+        bcc     db_x            ; other control byte: ignore
         cmp     #'a'
-        bcc     db_store
+        bcc     db_folded
         cmp     #('z'+1)
-        bcs     db_store
+        bcs     db_folded
         and     #$DF            ; lower-case modem firmware -> upper-case
-db_store:
+db_folded:
         ldx     mdm_c1
-        cpx     #10
-        bcs     db_x
-        sta     mdm_line,x
-        inx
-        stx     mdm_c1
-        rts
-db_line:
-        ldx     mdm_c1
-        beq     db_reset
-        stz     mdm_line,x
-        lda     mdm_line
-        cmp     #'C'
-        beq     db_connect
+        cpx     #$FF
+        beq     db_x            ; line done: drain the rest
+        cpx     #'C'
+        beq     db_pC
+        cpx     #'N'
+        beq     db_pN
+        cpx     #'M'
+        beq     db_pM
+        ; phase 0: the line's first letter
+        cmp     #' '
+        beq     db_x            ; skip a leading space, stay in phase 0
         cmp     #'E'
         beq     db_error
         cmp     #'B'
         beq     db_busy
+        cmp     #'C'
+        beq     db_setC
         cmp     #'N'
-        bne     db_reset
-        lda     mdm_line+3       ; "NO CARRIER" / "NO ANSWER"
+        beq     db_setN
+        bra     db_ignore       ; OK / RING / dial echo / other
+db_pC: cmp     #'O'            ; "CO" -> CONNECT
+        bne     db_ignore
+        lda     #DIAL_CONNECT
+        bra     db_set
+db_pN: cmp     #'O'            ; "NO" -> scan for the keyword
+        bne     db_ignore
+        lda     #'M'
+        sta     mdm_c1
+        rts
+db_pM: cmp     #' '            ; skip spaces after "NO"
+        beq     db_x
         cmp     #'C'
         beq     db_carrier
         cmp     #'A'
         beq     db_answer
-        bra     db_reset
-db_connect:
-        lda     mdm_line+1
-        cmp     #'O'
-        bne     db_reset
-        lda     #DIAL_CONNECT
+        lda     #DIAL_NO_CARRIER ; NO DIALTONE / other NO x -> carrier-class
         bra     db_set
+db_setC:
+        lda     #'C'
+        sta     mdm_c1
+        rts
+db_setN:
+        lda     #'N'
+        sta     mdm_c1
+        rts
 db_error:
         lda     #DIAL_ERROR
         bra     db_set
@@ -1243,10 +1261,13 @@ db_carrier:
         bra     db_set
 db_answer:
         lda     #DIAL_NO_ANSWER
-db_set: sta     dialres
-db_reset:
-        stz     mdm_c1
+db_set: sta     dialres         ; verdict recorded; drain rest of line
+db_ignore:
+        lda     #$FF
+        sta     mdm_c1
 db_x:   rts
+db_nl:  stz     mdm_c1
+        rts
 
 dial_str:
         .byte   "ATDS=1",0
@@ -1453,9 +1474,11 @@ spinner:
         stz     frame
         stz     havefirst
         stz     sp_vblsub
-        stz     sp_ones
-        stz     sp_tens
-        stz     sp_huns
+        stz     sp_s1
+        stz     sp_s10
+        stz     sp_m1
+        stz     sp_m10
+        stz     sp_h
         stz     spin_cancel
 sp_lp:
         lda     KBD
@@ -1538,7 +1561,7 @@ sp_draw:
         sta     strptr
         sep     #$20
         .a8
-        jsr     draw_str        ; "s * esc to interrupt)"
+        jsr     draw_str        ; " * esc to interrupt)"
         ; pad to col 40 to erase a longer previous render
 sp_pad:
         rep     #$20
@@ -1628,48 +1651,102 @@ sp_pc_n:
 sp_pc_x:
         rts
 
-; tick_second - one elapsed second: bump the decimal digit counters.
+; tick_second - one elapsed second, carried through minutes and hours.
 tick_second:
         .a8
         .i8
-        inc     sp_ones
-        lda     sp_ones
+        inc     sp_s1
+        lda     sp_s1
         cmp     #10
         bcc     ts_done
-        stz     sp_ones
-        inc     sp_tens
-        lda     sp_tens
+        stz     sp_s1
+        inc     sp_s10
+        lda     sp_s10
+        cmp     #6              ; 60 seconds -> carry into minutes
+        bcc     ts_done
+        stz     sp_s10
+        inc     sp_m1
+        lda     sp_m1
         cmp     #10
         bcc     ts_done
-        stz     sp_tens
-        inc     sp_huns
+        stz     sp_m1
+        inc     sp_m10
+        lda     sp_m10
+        cmp     #6              ; 60 minutes -> carry into hours
+        bcc     ts_done
+        stz     sp_m10
+        lda     sp_h
+        cmp     #9              ; saturate instead of drawing ':' after 9h
+        bcs     ts_done
+        inc     sp_h
 ts_done:
         rts
 
-; draw_secs - print the elapsed seconds (sp_huns/tens/ones) with no leading zeros
+; draw_secs - smart elapsed units: "38s", "12m 18s", or "1h 08m".
 draw_secs:
         .a8
         .i8
-        lda     sp_huns
-        beq     ds_tens
+        lda     sp_h
+        bne     ds_hours
+        lda     sp_m1
+        ora     sp_m10
+        bne     ds_mins
+        lda     sp_s10
+        beq     ds_s_ones
         clc
         adc     #'0'
         jsr     putchar
-        lda     sp_tens         ; huns shown -> always show tens
+ds_s_ones:
+        lda     sp_s1
         clc
         adc     #'0'
         jsr     putchar
-        bra     ds_ones
-ds_tens:
-        lda     sp_tens
-        beq     ds_ones
+        lda     #'s'
+        jsr     putchar
+        rts
+ds_mins:
+        lda     sp_m10
+        beq     ds_m_ones
         clc
         adc     #'0'
         jsr     putchar
-ds_ones:
-        lda     sp_ones
+ds_m_ones:
+        lda     sp_m1
         clc
         adc     #'0'
+        jsr     putchar
+        lda     #'m'
+        jsr     putchar
+        lda     #' '
+        jsr     putchar
+        lda     sp_s10
+        clc
+        adc     #'0'
+        jsr     putchar
+        lda     sp_s1
+        clc
+        adc     #'0'
+        jsr     putchar
+        lda     #'s'
+        jsr     putchar
+        rts
+ds_hours:
+        clc
+        adc     #'0'
+        jsr     putchar
+        lda     #'h'
+        jsr     putchar
+        lda     #' '
+        jsr     putchar
+        lda     sp_m10
+        clc
+        adc     #'0'
+        jsr     putchar
+        lda     sp_m1
+        clc
+        adc     #'0'
+        jsr     putchar
+        lda     #'m'
         jsr     putchar
         rts
 
@@ -3063,7 +3140,7 @@ str_link:   .byte "Apple II <-> Codex",0
 str_prompt: .byte "> ",0
 str_working:.byte "Working",0
 str_worktail:.byte " (",0
-str_interrupt:.byte "s * esc to interrupt)",0
+str_interrupt:.byte " * esc to interrupt)",0
 star_colors:.byte 1,2,3,2
 shimmer_colors:
         .byte 3,2,1,1,1,1,1
@@ -3077,9 +3154,12 @@ shimmer_colors:
 
 linebuf:    .res 128
 sp_vblsub:  .res 1          ; vblanks counted within the current second
-sp_ones:    .res 1          ; elapsed-seconds decimal digits
-sp_tens:    .res 1
-sp_huns:    .res 1
+; elapsed-time decimal digits, carried at 60 seconds and 60 minutes
+sp_s1:      .res 1          ; seconds ones (0-9)
+sp_s10:     .res 1          ; seconds tens (0-5)
+sp_m1:      .res 1          ; minutes ones (0-9)
+sp_m10:     .res 1          ; minutes tens (0-5)
+sp_h:       .res 1          ; hours (saturates at 9)
 spin_cancel:.res 1          ; one interrupt byte sent for this turn
 shimmer_base:.res 1         ; frame's first offset into shimmer_colors
 shimmer_ix: .res 1          ; character within Working (0..6)
@@ -3102,8 +3182,7 @@ dialres:    .res 1          ; dial window: 0 silence, 1 CONNECT, 2 failure
 dcd_active: .res 1          ; nonzero if DCD was asserted at session start
 dcd_trust:  .res 1          ; DCD has read "no carrier" once: the pin is live
 muteflag:   .res 1          ; Ctrl-C during recv_reply: drain without drawing
-mdm_c1:     .res 1          ; dial window: first char of current rx line
-mdm_line:   .res 11         ; uppercase modem result prefix, NUL-terminated
+mdm_c1:     .res 1          ; dial window result-classifier phase
 dcol:       .res 1          ; dial window: echo column on row 22
 mus_cd0:    .res 1          ; voice 0: vblanks left on current note
 mus_cd1:    .res 1          ; voice 1: vblanks left on current note

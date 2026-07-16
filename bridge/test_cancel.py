@@ -331,7 +331,6 @@ if __name__ == "__main__":
     test_kill_group_escalates_to_sigkill()
     test_kill_group_already_dead()
     test_codexbackend_cancel_uses_group_kill()
-    test_chatbackend_cancel_closes_stream()
     test_idle_guard_drops_silent_peer()
     test_idle_guard_resets_on_bytes()
     test_idle_guard_disarm_stops_watchdog()

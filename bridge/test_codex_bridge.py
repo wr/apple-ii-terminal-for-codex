@@ -1,4 +1,5 @@
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 
@@ -43,6 +44,33 @@ def test_make_backend_returns_codex_backend(tmp_path):
     assert isinstance(be, CodexBackend)
     assert be._cwd == str(tmp_path.resolve())
     assert be._sandbox == "workspace-write"
+
+
+def test_app_session_installs_host_console_activity_observer(monkeypatch):
+    backend = SimpleNamespace(on_activity=None)
+    shown = []
+    sentinel = object()
+
+    monkeypatch.setattr(bridge, "make_backend", lambda *_args: backend)
+    monkeypatch.setattr(
+        bridge,
+        "show_activity",
+        lambda peer, kind, detail: shown.append((peer, kind, detail)),
+        raising=False,
+    )
+
+    def fake_app_session(_term, _args, observed, *_rest):
+        assert observed is backend
+        assert callable(observed.on_activity)
+        observed.on_activity("tool", "pytest -q")
+        return sentinel
+
+    monkeypatch.setattr(bridge, "run_app_session", fake_app_session)
+    term = SimpleNamespace(ch=SimpleNamespace(peer="apple2.local"))
+    args = SimpleNamespace(cols=80, app=True)
+
+    assert bridge._run_session(term, args, pm=None, guard=None) is sentinel
+    assert shown == [("apple2.local", "tool", "pytest -q")]
 
 
 def test_unknown_slash_command_is_never_forwarded():

@@ -90,6 +90,20 @@ def show_reply(peer, secs: float, nlines: int, mode: str) -> None:
           f"{WHITE}< {mode} reply sent · {secs:.1f}s · {nlines} lines{OFF}")
 
 
+def show_activity(peer, kind: str, detail: str) -> None:
+    """Show live Codex activity on the host console, never on the wire."""
+    body = detail or kind
+    _line(peer or "client",
+          f"{GRAY}    {body}{OFF}" if kind == "tool"
+          else f"{GRAY}    ({body}){OFF}")
+
+
+def _attach_activity(backend, peer) -> None:
+    """Point a backend's activity hook at this peer's console log."""
+    if backend is not None:
+        backend.on_activity = lambda kind, detail: show_activity(peer, kind, detail)
+
+
 def _lan_ip():
     """This host's LAN address - the IP the WiFi modem must dial."""
     import socket
@@ -854,6 +868,7 @@ def _run_session(term: Terminal, args, pm, guard) -> None:
     mode = "codex"
     backend = make_backend(cols, args)
     backend_err = None
+    _attach_activity(backend, getattr(term.ch, "peer", None))
 
     if args.app:
         return run_app_session(term, args, backend, backend_err, mode, pair_via)

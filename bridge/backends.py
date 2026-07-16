@@ -93,6 +93,19 @@ def _configured_effort() -> str | None:
 class Backend:
     name = "backend"
 
+    # Optional (kind, detail) callback the session sets to watch a turn's
+    # progress on the host console. Keep this separate from stream(): activity
+    # is for the operator, not the Apple II client.
+    on_activity = None
+
+    def _emit_activity(self, kind: str, detail: str = "") -> None:
+        cb = self.on_activity
+        if cb is not None:
+            try:
+                cb(kind, detail)
+            except Exception:  # a broken observer must never derail a turn
+                pass
+
     def stream(self, user_text: str) -> Iterator[str]:
         raise NotImplementedError
 
@@ -323,11 +336,12 @@ class CodexBackend(Backend):
         if self._last_duration_ms is None:
             return None
         seconds = round(self._last_duration_ms / 1000)
-        elapsed = (
-            f"{seconds // 60}m {seconds % 60}s"
-            if seconds >= 60
-            else f"{seconds}s"
-        )
+        if seconds >= 3600:
+            elapsed = f"{seconds // 3600}h {(seconds % 3600) // 60}m"
+        elif seconds >= 60:
+            elapsed = f"{seconds // 60}m {seconds % 60}s"
+        else:
+            elapsed = f"{seconds}s"
         footer = f"Worked for {elapsed}"
         if self._last_output_tokens:
             if self._last_output_tokens >= 1000:
@@ -366,10 +380,12 @@ class CodexBackend(Backend):
                 text = item.get("text")
                 if isinstance(text, str):
                     yield text
-            elif self._show_tools:
+            else:
                 summary = self._tool_summary(item)
                 if summary:
-                    yield f"[{summary}]\n"
+                    self._emit_activity("tool", summary)
+                    if self._show_tools:
+                        yield f"[{summary}]\n"
             if kind not in {
                 "agent_message",
                 "reasoning",

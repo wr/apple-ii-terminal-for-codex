@@ -100,6 +100,28 @@ def test_tool_fixture_is_quiet_in_app_and_summarized_in_raw_mode():
     assert "All tests pass." in rendered
 
 
+def test_tool_activity_is_observed_even_when_app_wire_is_quiet():
+    events = [
+        json.loads(line)
+        for line in (FIXTURES / "tool-turn.jsonl").read_text().splitlines()
+    ]
+    be = backend(show_tools=False)
+    observed = []
+    be.on_activity = lambda kind, detail: observed.append((kind, detail))
+
+    rendered = "".join(x for event in events for x in be._render_event(event))
+
+    assert rendered == "All tests pass."
+    assert observed == [
+        ("tool", "pytest -q"),
+        ("tool", "pytest -q"),
+        ("tool", "changed bridge.py"),
+        ("tool", "searched Codex docs"),
+        ("tool", "github/get_file"),
+        ("tool", "plan 1/1"),
+    ]
+
+
 def test_header_and_footer_are_codex_specific(monkeypatch):
     monkeypatch.setattr(backends, "codex_version", lambda _bin: (0, 144, 1))
     be = backend(model="gpt-5.4", cwd="/tmp/repo")
@@ -112,6 +134,22 @@ def test_header_and_footer_are_codex_specific(monkeypatch):
         "permissions: workspace-write / never",
     )
     assert be.footer() == "Worked for 2s - 1.2k tokens"
+
+
+@pytest.mark.parametrize(
+    ("seconds", "expected"),
+    [
+        (59, "Worked for 59s"),
+        (60, "Worked for 1m 0s"),
+        (999, "Worked for 16m 39s"),
+        (1000, "Worked for 16m 40s"),
+        (3600, "Worked for 1h 0m"),
+    ],
+)
+def test_footer_formats_long_durations(seconds, expected):
+    be = backend()
+    be._last_duration_ms = seconds * 1000
+    assert be.footer() == expected
 
 
 def test_prime_resolves_model_and_effort_without_auth(monkeypatch, tmp_path):

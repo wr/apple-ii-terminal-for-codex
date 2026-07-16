@@ -102,6 +102,6 @@ GS client (`codex.s`):
 - 6551 TX polls TDRE with a timeout because new-production W65C51N chips never set the bit.
 
 Environment:
-- **KEGS reads `~/config.kegs`** (home dir, not the app folder — macOS translocation). `s6d1` points at `~/Downloads/CODEX.dsk`, which `build.sh` refreshes; a leading `#` on the path means "ejected".
+- **KEGS reads `~/config.kegs`** (home dir, not the app folder — macOS translocation). `s6d1` points at `~/Downloads/CODEX.dsk`; `COPY_TO_DOWNLOADS=1 ./build.sh` refreshes that copy, while a normal build leaves it alone. A leading `#` on the path means "ejected".
 - **Slash commands**: `bridge.py:handle_command` owns `/new`/`/clear`, `/model`, `/help`, and `/quit`/`/exit`. Unknown commands are rejected; they are never forwarded as Codex TUI commands.
-- **Interrupt**: Ctrl-C at an idle prompt = local quit-to-menu. During Working, Esc or Ctrl-C sends one bare `0x03`; `run_app_session` polls the transport and `backend.cancel()` kills the complete Codex process group, then sends partial output + `Interrupted by user` + EOT. During printing, Ctrl-C mutes and drains to EOT locally.
+- **Interrupt**: Ctrl-C at an idle prompt = local quit-to-menu. During Working, the first Esc or Ctrl-C sends one bare `0x03`; `run_app_session` polls the transport and `backend.cancel()` kills the complete Codex process group, then sends partial output + `Interrupted by user` + EOT. On the 8-bit client, a second key, DCD loss, or the bounded cancel timeout forces a local return if EOT never arrives. During printing, Ctrl-C mutes and drains to EOT locally.

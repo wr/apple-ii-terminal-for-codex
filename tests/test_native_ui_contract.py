@@ -22,7 +22,7 @@ def test_native_clients_show_codex_working_copy():
     assert '" ("' in gs
     assert '" Working ("' in eight_bit
     for text in (gs, eight_bit):
-        assert '"s * esc to interrupt)"' in text
+        assert '" * esc to interrupt)"' in text
 
 
 def test_menu_title_is_centered_for_its_29_character_width():
@@ -51,15 +51,77 @@ def test_gs_glyph_drawing_keeps_draining_the_scc():
     assert "pc_row:\n        jsr     rb_poll" in putchar
 
 
-def test_escape_and_ctrl_c_share_one_inflight_interrupt_path():
-    for source in SOURCES:
+def test_escape_and_ctrl_c_share_one_inflight_remote_interrupt_path():
+    for source, sender in zip(SOURCES, ("sccput", "aciaput")):
         text = source.read_text()
         spinner = text[text.index("spinner:"):text.index("recv_reply:")]
         assert "spin_cancel" in spinner
         assert "#$1B" in spinner
         assert "#$03" in spinner
-        assert "sp_esc" not in spinner
-        assert "fake end-of-reply" not in spinner
+        assert "inc     spin_cancel" in spinner
+        assert f"jsr     {sender}" in spinner
+
+
+def test_8bit_spinner_can_force_local_recovery_after_remote_cancel():
+    source = Path("apple2/codex2.s").read_text()
+    spinner = source.split("spinner:", 1)[1].split("recv_reply:", 1)[0]
+
+    assert "second Esc/Ctrl-C forces a local return" in spinner
+    assert "jsr     check_carrier" in spinner
+    assert "spin_wait" in spinner
+    assert "lda     #EOT" in spinner
+    assert "sta     quitflag" in spinner
+
+
+def test_8bit_spinner_drawing_never_starves_the_single_byte_acia():
+    source = Path("apple2/codex2.s").read_text()
+    draw_str = source.split("draw_str:", 1)[1].split("; setstr", 1)[0]
+    spinner = source.split("spinner:", 1)[1].split("recv_reply:", 1)[0]
+    put_digit = spinner.split("sp_put_digit:", 1)[1]
+
+    assert "@l:     jsr     rb_poll" in draw_str
+    assert "jsr     rb_poll" in put_digit
+
+
+def _format_native_elapsed(total_seconds):
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m"
+    if minutes:
+        return f"{minutes}m {seconds:02d}s"
+    return f"{seconds}s"
+
+
+def test_native_elapsed_timer_rollovers():
+    assert _format_native_elapsed(59) == "59s"
+    assert _format_native_elapsed(60) == "1m 00s"
+    assert _format_native_elapsed(999) == "16m 39s"
+    assert _format_native_elapsed(1000) == "16m 40s"
+    assert _format_native_elapsed(3600) == "1h 00m"
+
+
+def test_native_timers_use_bounded_seconds_minutes_hours_digits():
+    for source_path in SOURCES:
+        source = source_path.read_text()
+        spinner = source.split("spinner:", 1)[1].split("recv_reply:", 1)[0]
+        for counter in ("sp_s1", "sp_s10", "sp_m1", "sp_m10", "sp_h"):
+            assert counter in spinner
+        assert "60 seconds -> carry into minutes" in spinner
+        assert "60 minutes -> carry into hours" in spinner
+        assert "#'h'" in spinner
+        assert "#'m'" in spinner
+        assert "#'s'" in spinner
+
+
+def test_8bit_spinner_redraws_the_status_line_only_when_the_second_changes():
+    source = Path("apple2/codex2.s").read_text()
+    spinner = source.split("spinner:", 1)[1].split("recv_reply:", 1)[0]
+
+    assert "sp_draw_line:" in spinner
+    assert "sp_draw_pulse:" in spinner
+    assert "jsr     sp_draw_line" in spinner
+    assert "jsr     sp_draw_pulse" in spinner
 
 
 def test_legacy_three_line_header_contract_is_absent():
