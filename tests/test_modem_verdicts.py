@@ -168,9 +168,11 @@ def test_gs_silent_expiry_samples_dcd_and_rejects_untrusted_carrier():
     assert dcd_sample is not None
     assert trust_check is not None
     assert dcd_sample.start() < trust_check.start()
-    assert re.search(r"and\s+#\$08[^\n]*\n\s*beq\s+ac_fail", expiry)
+    # A no-carrier sample at silent expiry proves the DCD pin is live, so it
+    # learns trust before failing (matches the Claude fork's unified policy).
+    assert re.search(r"and\s+#\$08[^\n]*\n\s*beq\s+ac_silent_nocar", expiry)
     assert "bra     ac_hold" in expiry
-    assert "sta     dcd_trust" not in expiry
+    assert "sta     dcd_trust" in expiry
     assert "session_start" not in expiry
     assert "str_dtimeout" in connect.split("ac_fail:", 1)[1]
 
@@ -186,8 +188,10 @@ def test_8bit_silent_expiry_samples_dcd_and_rejects_untrusted_carrier():
     assert dcd_sample is not None
     assert trust_check is not None
     assert dcd_sample.start() < trust_check.start()
-    assert re.search(r"and\s+#\$20[^\n]*\n\s*bne\s+@fail", expiry)
+    # A no-carrier sample at silent expiry proves the DCD pin is live, so it
+    # learns trust before failing (matches the Claude fork's unified policy).
+    assert re.search(r"and\s+#\$20[^\n]*\n\s*bne\s+@silent_nocar", expiry)
     assert "jmp     @hold" in expiry
-    assert "sta     dcd_trust" not in expiry
+    assert "sta     dcd_trust" in expiry
     assert "session_start" not in expiry
     assert "str_dtimeout" in connect.split("@fail:", 1)[1]

@@ -373,11 +373,15 @@ ac_ck:  plx
         sta     SCC_STAT
         lda     SCC_STAT
         and     #$08            ; DCD high = carrier
-        beq     ac_fail
+        beq     ac_silent_nocar
         lda     dcd_trust
         beq     ac_fail
         ; Trusted carrier: proceed through the same ring-out as CONNECT.
         bra     ac_hold
+ac_silent_nocar:
+        lda     #1              ; this no-carrier sample proves the pin is live
+        sta     dcd_trust
+        bra     ac_fail
         ; A fast modem answers mid-theater; a buzz chopped at half a note
         ; reads as a glitch, not carrier detect (W-517). The verdict is in,
         ; so stop classifying - just drain rx and let the stream finish.
@@ -1680,7 +1684,22 @@ sp_pc_x:
 tick_second:
         .a8
         .i8
-        inc     sp_s1
+        lda     sp_h            ; freeze every elapsed digit at 9h 59m 59s
+        cmp     #9              ; instead of rolling the display to 9h 00m
+        bne     ts_inc
+        lda     sp_m10
+        cmp     #5
+        bne     ts_inc
+        lda     sp_m1
+        cmp     #9
+        bne     ts_inc
+        lda     sp_s10
+        cmp     #5
+        bne     ts_inc
+        lda     sp_s1
+        cmp     #9
+        beq     ts_done         ; fully clamped -> hold
+ts_inc: inc     sp_s1
         lda     sp_s1
         cmp     #10
         bcc     ts_done

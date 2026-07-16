@@ -835,10 +835,14 @@ act_connect:
         ; proved itself live by reading no-carrier and now reads carrier.
         lda     ACIA_S
         and     #$20            ; 6551 bit5: 0 = carrier present
-        bne     @fail
+        bne     @silent_nocar
         lda     dcd_trust
         beq     @fail           ; reject a high DCD that has never moved
         jmp     @hold           ; trusted carrier: finish theater, then session
+@silent_nocar:
+        lda     #1              ; this no-carrier sample proves the pin is live
+        sta     dcd_trust
+        jmp     @fail
         ; A fast modem answers mid-theater; a buzz chopped at half a note
         ; reads as a glitch, not carrier detect (W-517). The verdict is in,
         ; so stop classifying - play out the storyboard, still draining rx
@@ -1572,7 +1576,22 @@ sp_draw_line:
 
 ; sp_tick_second - bounded decimal digits with 60-second/minute carries.
 sp_tick_second:
-        inc     sp_s1
+        lda     sp_h            ; freeze every elapsed digit at 9h 59m 59s
+        cmp     #9
+        bne     @inc
+        lda     sp_m10
+        cmp     #5
+        bne     @inc
+        lda     sp_m1
+        cmp     #9
+        bne     @inc
+        lda     sp_s10
+        cmp     #5
+        bne     @inc
+        lda     sp_s1
+        cmp     #9
+        beq     @done           ; fully clamped -> hold
+@inc:   inc     sp_s1
         lda     sp_s1
         cmp     #10
         bcc     @done
