@@ -11,7 +11,7 @@ The backend is the actual agentic Codex CLI. The clients are bare-metal 65816 an
 Press **Connect** and it plays the 1986 dial-up soundscape: dial tone, touch-tones that spell `C-O-D-E-X` on the keypad, ring, answer tone, and carrier buzz.
 
 > [!TIP]
-> Did you find my work useful? [Your donation](https://buymeacoffee.com/wellsriley) helps fund future projects. Thank you!
+> Did you find my work useful? [Your donation](https://buymeacoffee.com/wellsworkshop) helps fund future projects. Thank you!
 
 ## Apple II instructions
 

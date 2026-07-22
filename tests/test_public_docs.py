@@ -36,7 +36,7 @@ def test_readme_keeps_the_hardware_first_project_voice():
     assert "## Advanced bridge options" in readme
     assert "## Generic terminal app instructions" in readme
     assert "## Building from source" in readme
-    assert "https://buymeacoffee.com/wellsriley" in readme
+    assert "https://buymeacoffee.com/wellsworkshop" in readme
 
 
 def test_ci_runs_the_current_asset_test_module():
