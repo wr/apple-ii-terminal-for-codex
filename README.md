@@ -1,16 +1,35 @@
-# Apple II Terminal for Codex
+<h1 align="center">Apple II Terminal for Codex</h1>
 
-[▶️ Build video](https://www.youtube.com/watch?v=6VsCheEJMIk)
+<p align="center">
+  <strong>A real Apple II, as a terminal for the actual <code>codex</code> CLI.</strong>
+</p>
 
-A real Apple II, as a terminal for Codex.
+<p align="center">
+  <a href="#what-is-it">What is it?</a> ⬪
+  <a href="#apple-ii-instructions">Real hardware</a> ⬪
+  <a href="#emulator-instructions">Emulator</a> ⬪
+  <a href="#advanced-bridge-options">Bridge options</a> ⬪
+  <a href="#building-from-source">Build</a> ⬪
+  <a href="#donate">Donate</a>
+</p>
 
-Boot a 140K floppy, dial a WiFi modem, and your Apple II becomes a terminal for the real `codex` CLI, bridged from a modern machine. The disk image boots every model from the IIgs down to the II+ (or an emulator).
+<p align="center">
+  <sub><a href="https://www.youtube.com/watch?v=6VsCheEJMIk">▶️ Watch the build video</a></sub>
+</p>
+
+---
+
+## What is it?
+
+Boot a 140K floppy, dial a WiFi modem, and your Apple II becomes a terminal for the real `codex` CLI, bridged from a modern machine. The disk image boots every model from the IIgs down to the II+ — or an emulator.
 
 The backend is the actual agentic Codex CLI. The clients are bare-metal 65816 and 6502 programs that draw the whole interface themselves from a tiny 7-bit ASCII protocol. A IIgs gets a monochrome Super Hi-Res client with an animated `>_` splash, scrolling transcript, Codex-style header, and Working shimmer; a IIe, IIc, IIc Plus, or II+ gets a text-mode client from the same disk.
 
 Press **Connect** and it plays the 1986 dial-up soundscape: dial tone, touch-tones that spell `C-O-D-E-X` on the keypad, ring, answer tone, and carrier buzz.
 
-<a href="https://www.buymeacoffee.com/wellsworkshop"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=%E2%98%95&slug=wellsworkshop&button_colour=FFDD00&font_colour=000000&font_family=Arial&outline_colour=000000&coffee_colour=ffffff" /></a>
+<p align="center">
+  <a href="https://www.buymeacoffee.com/wellsworkshop"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=%E2%98%95&slug=wellsworkshop&button_colour=FFDD00&font_colour=000000&font_family=Arial&outline_colour=000000&coffee_colour=ffffff" /></a>
+</p>
 
 ## Apple II instructions
 
@@ -159,6 +178,10 @@ python3 preview.py assets.inc preview.png
 
 The 8-bit client has its own MAME harness: an emulated Super Serial Card maps to a TCP socket and Lua drives the boot, dial, session, and reply loop unattended.
 
+## Donate
+
+This project is free and open source. If it made you smile, a donation is deeply appreciated and keeps development and support going. [Buy me a coffee](https://www.buymeacoffee.com/wellsworkshop).
+
 ## Credits
 
 This project is derived from [Apple II Terminal for Claude Code](https://github.com/wr/apple-ii-terminal-for-claude-code). It is not affiliated with or endorsed by OpenAI.
@@ -168,4 +191,6 @@ This project is derived from [Apple II Terminal for Claude Code](https://github.
 - **Emulators:** [KEGS](https://kegs.sourceforge.net/) and MAME
 - The Apple II community... Apple II forever!
 
-MIT license, covering this project's own code only. The build and release disk also include third-party material. Provenance and status for each are in [NOTICE.md](NOTICE.md) and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+## License
+
+MIT, covering this project's own code only. The build and release disk also include third-party material. Provenance and status for each are in [NOTICE.md](NOTICE.md) and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). © 2026 Wells Riley.
