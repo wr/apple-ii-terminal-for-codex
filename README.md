@@ -6,15 +6,14 @@
 
 <p align="center">
   <a href="#what-is-it">What is it?</a> ⬪
-  <a href="#apple-ii-instructions">Real hardware</a> ⬪
-  <a href="#emulator-instructions">Emulator</a> ⬪
+  <a href="#apple-ii-instructions">Install (real hardware)</a> ⬪
+  <a href="#emulator-instructions">Install (emulator)</a> ⬪
   <a href="#advanced-bridge-options">Bridge options</a> ⬪
-  <a href="#building-from-source">Build</a> ⬪
   <a href="#donate">Donate</a>
 </p>
 
 <p align="center">
-  <sub><a href="https://www.youtube.com/watch?v=6VsCheEJMIk">▶️ Watch the build video</a></sub>
+  <sub>I recorded a full build video that you can <a href="https://www.youtube.com/watch?v=6VsCheEJMIk">watch here</a>.</sub>
 </p>
 
 ---
@@ -26,10 +25,6 @@ Boot a 140K floppy, dial a WiFi modem, and your Apple II becomes a terminal for 
 The backend is the actual agentic Codex CLI. The clients are bare-metal 65816 and 6502 programs that draw the whole interface themselves from a tiny 7-bit ASCII protocol. A IIgs gets a monochrome Super Hi-Res client with an animated `>_` splash, scrolling transcript, Codex-style header, and Working shimmer; a IIe, IIc, IIc Plus, or II+ gets a text-mode client from the same disk.
 
 Press **Connect** and it plays the 1986 dial-up soundscape: dial tone, touch-tones that spell `C-O-D-E-X` on the keypad, ring, answer tone, and carrier buzz.
-
-<p align="center">
-  <a href="https://www.buymeacoffee.com/wellsworkshop"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=%E2%98%95&slug=wellsworkshop&button_colour=FFDD00&font_colour=000000&font_family=Arial&outline_colour=000000&coffee_colour=ffffff" /></a>
-</p>
 
 ## Apple II instructions
 
@@ -180,7 +175,7 @@ The 8-bit client has its own MAME harness: an emulated Super Serial Card maps to
 
 ## Donate
 
-This project is free and open source. If it made you smile, a donation is deeply appreciated and keeps development and support going. [Buy me a coffee](https://www.buymeacoffee.com/wellsworkshop).
+While this project is free and open source, donations are deeply appreciated, and make ongoing development and support possible. [Donate now](https://www.buymeacoffee.com/wellsworkshop).
 
 ## Credits
 
