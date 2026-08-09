@@ -1,3 +1,7 @@
+<p align="center">
+  <img width="50% alt="Logo" src="https://github.com/user-attachments/assets/587853e1-c471-4e0c-bfe2-58e2617a700b" />
+</p>
+
 <h1 align="center">Apple II Terminal for Codex</h1>
 
 <p align="center">
@@ -10,6 +14,10 @@
   <a href="#emulator-instructions">Install (emulator)</a> ⬪
   <a href="#advanced-bridge-options">Bridge options</a> ⬪
   <a href="#donate">Donate</a>
+</p>
+
+<p align="center">
+  <img width="600" alt="YouTube player" src="https://github.com/user-attachments/assets/1336bd9d-2aa2-4fb5-a01a-1eb1692087a6" />
 </p>
 
 <p align="center">
